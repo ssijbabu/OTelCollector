@@ -53,7 +53,10 @@ func buildKafkaConsumerGroup(config *Config, host component.Host, logger *zap.Lo
 			return nil, "", fmt.Errorf("extension %q does not implement azcore.TokenCredential", *config.Auth)
 		}
 		cfg.Net.SASL.Mechanism = sarama.SASLTypeOAuth
-		cfg.Net.SASL.TokenProvider = &kafkaAzureTokenProvider{credential: cred}
+		cfg.Net.SASL.TokenProvider = &kafkaAzureTokenProvider{
+			credential: cred,
+			scope:      "https://" + config.EventHub.Namespace + "/.default",
+		}
 		brokers = []string{config.EventHub.Namespace + ":9093"}
 		topic = config.EventHub.Name
 	} else {
@@ -91,15 +94,19 @@ func newBaseKafkaConsumerConfig() *sarama.Config {
 }
 
 // kafkaAzureTokenProvider fetches Azure AD OAuth tokens for SASL/OAUTHBEARER auth.
+// The scope is namespace-specific (https://<namespace>.servicebus.windows.net/.default)
+// because the Azure Event Hubs Kafka endpoint validates the token audience against the
+// namespace hostname, not the generic eventhubs.azure.net resource.
 type kafkaAzureTokenProvider struct {
 	credential azcore.TokenCredential
+	scope      string
 }
 
 func (p *kafkaAzureTokenProvider) Token() (*sarama.AccessToken, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	token, err := p.credential.GetToken(ctx, policy.TokenRequestOptions{
-		Scopes: []string{"https://eventhubs.azure.net/.default"},
+		Scopes: []string{p.scope},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to obtain Azure token for Kafka auth: %w", err)

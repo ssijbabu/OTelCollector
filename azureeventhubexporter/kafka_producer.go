@@ -62,10 +62,15 @@ func newKafkaSenderWithSASKey(eventHubCfg EventHubConfig) (*kafkaSenderImpl, err
 
 // newKafkaSenderFromCredential creates a kafkaSenderImpl authenticated via SASL/OAUTHBEARER,
 // fetching tokens from the supplied Azure credential on each handshake.
+// The scope uses the namespace-specific servicebus.windows.net resource, which is what
+// the Azure Event Hubs Kafka endpoint validates against (not the generic eventhubs.azure.net).
 func newKafkaSenderFromCredential(credential azcore.TokenCredential, eventHubCfg EventHubConfig) (*kafkaSenderImpl, error) {
 	cfg := newBaseKafkaConfig()
 	cfg.Net.SASL.Mechanism = sarama.SASLTypeOAuth
-	cfg.Net.SASL.TokenProvider = &azureTokenProvider{credential: credential}
+	cfg.Net.SASL.TokenProvider = &azureTokenProvider{
+		credential: credential,
+		scope:      "https://" + eventHubCfg.Namespace + "/.default",
+	}
 
 	producer, err := sarama.NewSyncProducer([]string{eventHubCfg.Namespace + ":9093"}, cfg)
 	if err != nil {
@@ -88,15 +93,19 @@ func newBaseKafkaConfig() *sarama.Config {
 
 // azureTokenProvider fetches Azure AD OAuth tokens for SASL/OAUTHBEARER auth.
 // sarama calls Token() on each SASL handshake; the azcore credential handles caching.
+// The scope is namespace-specific (https://<namespace>.servicebus.windows.net/.default)
+// because the Azure Event Hubs Kafka endpoint validates the token audience against the
+// namespace hostname, not the generic eventhubs.azure.net resource.
 type azureTokenProvider struct {
 	credential azcore.TokenCredential
+	scope      string
 }
 
 func (p *azureTokenProvider) Token() (*sarama.AccessToken, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	token, err := p.credential.GetToken(ctx, policy.TokenRequestOptions{
-		Scopes: []string{"https://eventhubs.azure.net/.default"},
+		Scopes: []string{p.scope},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to obtain Azure token for Kafka auth: %w", err)
