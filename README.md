@@ -12,7 +12,7 @@ The full EDOT component set plus two Azure-specific additions from this repo:
 |---|---|---|
 | `azure_event_hub` | Receiver | Ingests telemetry from Azure Event Hub (AMQP or Kafka protocol) |
 | `azure_event_hub` | Exporter | Forwards telemetry to Azure Event Hub (AMQP or Kafka protocol) |
-| `azureauth` | Extension | Azure AD authentication — managed identity, workload identity, service principal |
+| `azure_auth` | Extension | Azure AD authentication — managed identity, workload identity, service principal |
 
 ---
 
@@ -209,34 +209,109 @@ The Kafka endpoint (`<namespace>:9093`, TLS + SASL/PLAIN) is derived automatical
 
 ### Using Azure AD authentication (no SAS key)
 
-Replace the SAS key fields with an `auth:` reference and configure the `azureauthextension`:
+Replace the SAS key fields with an `auth:` reference and configure the `azure_auth` extension. The protocol choice determines which OAuth scope is used — this is handled automatically by the exporter and receiver, not by the extension config.
+
+#### OAuth scopes by protocol
+
+| Protocol | OAuth scope used | Why |
+|---|---|---|
+| **AMQP** | `https://eventhubs.azure.net/.default` | Standard Azure Event Hubs resource URI; used by the `azeventhubs` SDK for all AMQP connections |
+| **Kafka** | `https://<namespace>.servicebus.windows.net/.default` | The Kafka endpoint validates the token's `aud` claim against the namespace hostname — the generic `eventhubs.azure.net` audience causes a **"Invalid tenant name 'eventhubs'"** SASL auth error |
+
+The scope is set internally by the exporter and receiver based on the configured namespace. You do not need to set `scopes:` in the `azure_auth` extension for Event Hub auth.
+
+#### Kafka (SASL/OAUTHBEARER)
 
 ```yaml
 extensions:
-  azureauth:
-    scopes:
-      - https://eventhubs.azure.net/.default
+  azure_auth:
+    use_default: true          # or managed_identity / workload_identity / service_principal
 
 exporters:
   azure_event_hub:
     protocol: kafka
-    auth: azureauth
+    auth: azure_auth
     event_hub:
-      namespace: myns.servicebus.windows.net
+      namespace: myns.servicebus.windows.net   # scope becomes https://myns.servicebus.windows.net/.default
       name: otel-telemetry
 
 receivers:
   azure_event_hub:
     protocol: kafka
     group: otel-collector
-    auth: azureauth
+    auth: azure_auth
     event_hub:
       namespace: myns.servicebus.windows.net
       name: otel-telemetry
 
 service:
-  extensions: [health_check, azureauth]
+  extensions: [health_check, azure_auth]
 ```
+
+#### AMQP
+
+```yaml
+extensions:
+  azure_auth:
+    use_default: true
+
+exporters:
+  azure_event_hub:
+    protocol: amqp
+    auth: azure_auth
+    event_hub:
+      namespace: myns.servicebus.windows.net   # scope becomes https://eventhubs.azure.net/.default
+      name: otel-telemetry
+
+receivers:
+  azure_event_hub:
+    protocol: amqp
+    auth: azure_auth
+    event_hub:
+      namespace: myns.servicebus.windows.net
+      name: otel-telemetry
+
+service:
+  extensions: [health_check, azure_auth]
+```
+
+#### Authentication methods
+
+The `azure_auth` extension supports four methods — use whichever matches your environment:
+
+```yaml
+# Workload Identity (AKS — no secret material in the cluster)
+azure_auth:
+  use_default: true    # DefaultAzureCredential picks up the webhook-injected env vars
+
+# Explicit Workload Identity
+azure_auth:
+  workload_identity:
+    tenant_id: <tenant-id>
+    client_id: <client-id>
+    federated_token_file: /var/run/secrets/azure/tokens/azure-identity-token
+
+# Managed Identity
+azure_auth:
+  managed_identity:
+    client_id: <client-id>   # omit for system-assigned
+
+# Service Principal — client secret
+azure_auth:
+  service_principal:
+    tenant_id: <tenant-id>
+    client_id: <client-id>
+    client_secret: ${env:AZURE_CLIENT_SECRET}
+
+# Service Principal — certificate (PEM or unencrypted PFX)
+azure_auth:
+  service_principal:
+    tenant_id: <tenant-id>
+    client_id: <client-id>
+    client_certificate_path: /etc/otel-cert/cert.pem
+```
+
+> **Note:** `client_certificate_path` must point to an unencrypted PEM or PFX file — the extension does not support passphrase-protected certificates natively. For passphrase-protected PFX files in Kubernetes, use an init container to decrypt the PFX to a PEM file in a memory-backed `emptyDir` volume before the collector starts.
 
 For AKS Workload Identity, annotate the ServiceAccount and add the pod label — see the [Kubernetes deployment](#kubernetes-deployment) section.
 
@@ -448,7 +523,7 @@ The eBPF profiling receiver (`ebpfprofilingreceiver`) is intentionally excluded 
 | `apm_config` | `apmconfigextension` (EDOT) |
 | `aws_logs_encoding` | `awslogsencodingextension` |
 | `azure_encoding` | `azureencodingextension` |
-| `azureauth` | `azureauthextension` |
+| `azure_auth` | `azureauthextension` |
 | `bearer_token_auth` | `bearertokenauthextension` |
 | `cgroup_runtime` | `cgroupruntimeextension` |
 | `file_storage` | `filestorage` |
