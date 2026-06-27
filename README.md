@@ -280,11 +280,15 @@ service:
 The `azure_auth` extension supports four methods — use whichever matches your environment:
 
 ```yaml
-# Workload Identity (AKS — no secret material in the cluster)
+# Workload Identity via DefaultAzureCredential (AKS — no secret material in the cluster)
+# Relies on AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_FEDERATED_TOKEN_FILE being injected
+# by the Azure Workload Identity webhook. Simpler but opaque — credential type is inferred at runtime.
 azure_auth:
-  use_default: true    # DefaultAzureCredential picks up the webhook-injected env vars
+  use_default: true
 
-# Explicit Workload Identity
+# Explicit Workload Identity — same webhook-injected token file, but config is self-describing.
+# Prefer this when you want the credential type visible in the config rather than inferred.
+# The token file path is fixed; the webhook always writes to this location.
 azure_auth:
   workload_identity:
     tenant_id: <tenant-id>
