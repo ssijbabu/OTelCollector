@@ -1,0 +1,184 @@
+# Azure DevOps pipeline — OTelCollector multi-platform build
+#
+# Stages:
+#   Build  — compiles native binaries in parallel (Linux amd64, Windows amd64)
+#   Docker — builds and pushes a container image to Azure Container Registry
+#
+# Pipeline variables to configure in Azure DevOps → Pipelines → Edit → Variables:
+#   CONTAINER_REGISTRY_SERVICE_CONNECTION  name of your ACR service connection
+#   CONTAINER_REGISTRY_LOGIN_SERVER        e.g. myregistry.azurecr.io
+#
+# Docker push runs only on the main branch; PRs only validate the build.
+
+trigger:
+  branches:
+    include:
+    - main
+  paths:
+    exclude:
+    - '**/*.md'
+    - .gitignore
+
+pr:
+  branches:
+    include:
+    - main
+
+variables:
+  GO_VERSION: '1.26'
+  # BINARY_NAME and IMAGE_REPOSITORY are derived from manifest.yaml dist.name at
+  # runtime by the "Read names from manifest.yaml" step in each job below.
+  # To rename: change dist.name in manifest.yaml — no other file needs editing.
+  GOPATH: $(Pipeline.Workspace)/.go
+
+stages:
+
+# ── Stage 1: Binary builds ────────────────────────────────────────────────────
+- stage: Build
+  displayName: Build Binaries
+  jobs:
+
+  # ── Linux (amd64) ──────────────────────────────────────────────────────────
+  - job: Linux
+    displayName: Linux (amd64)
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+
+    - script: |
+        BINARY=$(awk '/^dist:/{f=1} f && /^ +name:/{print $2; exit}' otelcollector/manifest.yaml)
+        IMAGE=$(echo "$BINARY" | tr '[:upper:]' '[:lower:]')
+        echo "##vso[task.setvariable variable=BINARY_NAME]$BINARY"
+        echo "##vso[task.setvariable variable=IMAGE_REPOSITORY]$IMAGE"
+      displayName: Read binary and image names from manifest.yaml
+
+    - task: GoTool@0
+      displayName: Install Go $(GO_VERSION)
+      inputs:
+        version: $(GO_VERSION)
+
+    - task: Cache@2
+      displayName: Cache Go modules
+      inputs:
+        key: '"go" | "linux" | otelcollector/go.sum'
+        path: $(GOPATH)/pkg/mod
+        cacheHitVar: GO_CACHE_HIT
+
+    - script: go mod download
+      displayName: Download Go modules
+      condition: ne(variables['GO_CACHE_HIT'], 'true')
+      workingDirectory: otelcollector
+      env:
+        GOPATH: $(GOPATH)
+
+    - script: |
+        CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+        go build -trimpath -ldflags="-s -w" \
+          -o "$(Build.ArtifactStagingDirectory)/$(BINARY_NAME)" .
+      displayName: Compile Linux binary
+      workingDirectory: otelcollector
+      env:
+        GOPATH: $(GOPATH)
+
+    - task: PublishBuildArtifacts@1
+      displayName: Publish linux-amd64 artifact
+      inputs:
+        PathtoPublish: $(Build.ArtifactStagingDirectory)
+        ArtifactName: $(BINARY_NAME)-linux-amd64
+
+  # ── Windows (amd64) ────────────────────────────────────────────────────────
+  - job: Windows
+    displayName: Windows (amd64)
+    pool:
+      vmImage: windows-latest
+    steps:
+
+    - pwsh: |
+        $binary = (Select-String -Path otelcollector/manifest.yaml -Pattern '^\s+name:\s+(\S+)' |
+                   Select-Object -First 1).Matches.Groups[1].Value
+        $image = $binary.ToLower()
+        Write-Host "##vso[task.setvariable variable=BINARY_NAME]$binary"
+        Write-Host "##vso[task.setvariable variable=IMAGE_REPOSITORY]$image"
+      displayName: Read binary and image names from manifest.yaml
+
+    - task: GoTool@0
+      displayName: Install Go $(GO_VERSION)
+      inputs:
+        version: $(GO_VERSION)
+
+    - task: Cache@2
+      displayName: Cache Go modules
+      inputs:
+        key: '"go" | "windows" | otelcollector/go.sum'
+        path: $(GOPATH)/pkg/mod
+        cacheHitVar: GO_CACHE_HIT
+
+    - pwsh: go mod download
+      displayName: Download Go modules
+      condition: ne(variables['GO_CACHE_HIT'], 'true')
+      workingDirectory: otelcollector
+      env:
+        GOPATH: $(GOPATH)
+
+    - pwsh: |
+        go build -trimpath -ldflags="-s -w" `
+          -o "$(Build.ArtifactStagingDirectory)\$(BINARY_NAME).exe" .
+      displayName: Compile Windows binary
+      workingDirectory: otelcollector
+      env:
+        CGO_ENABLED: '0'
+        GOOS: windows
+        GOARCH: amd64
+        GOPATH: $(GOPATH)
+
+    - task: PublishBuildArtifacts@1
+      displayName: Publish windows-amd64 artifact
+      inputs:
+        PathtoPublish: $(Build.ArtifactStagingDirectory)
+        ArtifactName: $(BINARY_NAME)-windows-amd64
+
+# ── Stage 2: Docker image ─────────────────────────────────────────────────────
+- stage: Docker
+  displayName: Docker Image
+  dependsOn: Build
+  condition: succeeded()
+  jobs:
+
+  - job: DockerBuildPush
+    displayName: Build and push image
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+
+    - script: |
+        BINARY=$(awk '/^dist:/{f=1} f && /^ +name:/{print $2; exit}' otelcollector/manifest.yaml)
+        IMAGE=$(echo "$BINARY" | tr '[:upper:]' '[:lower:]')
+        echo "##vso[task.setvariable variable=BINARY_NAME]$BINARY"
+        echo "##vso[task.setvariable variable=IMAGE_REPOSITORY]$IMAGE"
+      displayName: Read binary and image names from manifest.yaml
+
+    # PRs: build only — validates the Dockerfile runs OCB cleanly but does not push
+    - task: Docker@2
+      displayName: Build image (PR validation)
+      condition: ne(variables['Build.SourceBranch'], 'refs/heads/main')
+      inputs:
+        command: build
+        Dockerfile: otelcollector/Dockerfile
+        buildContext: .
+        tags: $(IMAGE_REPOSITORY):$(Build.BuildId)
+        arguments: --build-arg BINARY_NAME=$(BINARY_NAME)
+
+    # main branch: build and push both a versioned tag and :latest
+    - task: Docker@2
+      displayName: Build and push to ACR (main)
+      condition: eq(variables['Build.SourceBranch'], 'refs/heads/main')
+      inputs:
+        containerRegistry: $(CONTAINER_REGISTRY_SERVICE_CONNECTION)
+        repository: $(IMAGE_REPOSITORY)
+        command: buildAndPush
+        Dockerfile: otelcollector/Dockerfile
+        buildContext: .
+        tags: |
+          $(Build.BuildId)
+          latest
+        arguments: --build-arg BINARY_NAME=$(BINARY_NAME)

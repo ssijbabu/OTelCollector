@@ -1,0 +1,157 @@
+azure_event_hub:
+  event_hub:
+    name: hubName
+    namespace: namespace.servicebus.windows.net
+    shared_access_key_name: RootManageSharedAccessKey
+    shared_access_key: superSecret1234=
+
+azure_event_hub/missing_credentials:
+
+azure_event_hub/missing_key:
+  event_hub:
+    name: hubName
+    namespace: namespace.servicebus.windows.net
+    shared_access_key_name: RootManageSharedAccessKey
+
+azure_event_hub/offset_without_partition:
+  event_hub:
+    name: hubName
+    namespace: namespace.servicebus.windows.net
+    shared_access_key_name: RootManageSharedAccessKey
+    shared_access_key: superSecret1234=
+  offset: "1234-5566"
+
+azure_event_hub/offset_with_partition:
+  event_hub:
+    name: hubName
+    namespace: namespace.servicebus.windows.net
+    shared_access_key_name: RootManageSharedAccessKey
+    shared_access_key: superSecret1234=
+  partition: foo
+  offset: "1234-5566"
+
+azure_event_hub/auth:
+  event_hub:
+    name: hubName
+    namespace: namespace.servicebus.windows.net
+  auth: azureauth
+
+azure_event_hub/auth_missing_event_hub_name:
+  auth: azureauth
+  event_hub:
+    namespace: ns
+
+azure_event_hub/auth_missing_namespace:
+  auth: azureauth
+  event_hub:
+    name: hub
+
+azure_event_hub/blob_checkpoint_store:
+  event_hub:
+    name: hubName
+    namespace: namespace.servicebus.windows.net
+    shared_access_key_name: RootManageSharedAccessKey
+    shared_access_key: superSecret1234=
+  blob_checkpoint_store:
+    connection: DefaultEndpointsProtocol=https;AccountName=myaccount;AccountKey=mykey;EndpointSuffix=core.windows.net
+    container_name: eventhub-checkpoints
+
+azure_event_hub/blob_checkpoint_store_auth:
+  event_hub:
+    name: hubName
+    namespace: namespace.servicebus.windows.net
+  auth: azureauth
+  blob_checkpoint_store:
+    storage_account_url: https://myaccount.blob.core.windows.net
+    container_name: eventhub-checkpoints
+
+azure_event_hub/blob_checkpoint_store_missing_container:
+  event_hub:
+    name: hubName
+    namespace: namespace.servicebus.windows.net
+    shared_access_key_name: RootManageSharedAccessKey
+    shared_access_key: superSecret1234=
+  blob_checkpoint_store:
+    connection: DefaultEndpointsProtocol=https;AccountName=myaccount;AccountKey=mykey;EndpointSuffix=core.windows.net
+
+azure_event_hub/blob_checkpoint_store_missing_connection:
+  event_hub:
+    name: hubName
+    namespace: namespace.servicebus.windows.net
+    shared_access_key_name: RootManageSharedAccessKey
+    shared_access_key: superSecret1234=
+  blob_checkpoint_store:
+    container_name: eventhub-checkpoints
+
+azure_event_hub/blob_checkpoint_store_auth_missing_url:
+  event_hub:
+    name: hubName
+    namespace: namespace.servicebus.windows.net
+  auth: azureauth
+  blob_checkpoint_store:
+    container_name: eventhub-checkpoints
+
+azure_event_hub/blob_checkpoint_store_with_partition:
+  event_hub:
+    name: hubName
+    namespace: namespace.servicebus.windows.net
+    shared_access_key_name: RootManageSharedAccessKey
+    shared_access_key: superSecret1234=
+  partition: "0"
+  blob_checkpoint_store:
+    connection: DefaultEndpointsProtocol=https;AccountName=myaccount;AccountKey=mykey;EndpointSuffix=core.windows.net
+    container_name: eventhub-checkpoints
+
+azure_event_hub/blob_checkpoint_store_with_storage:
+  event_hub:
+    name: hubName
+    namespace: namespace.servicebus.windows.net
+    shared_access_key_name: RootManageSharedAccessKey
+    shared_access_key: superSecret1234=
+  storage: file_storage
+  blob_checkpoint_store:
+    connection: DefaultEndpointsProtocol=https;AccountName=myaccount;AccountKey=mykey;EndpointSuffix=core.windows.net
+    container_name: eventhub-checkpoints
+
+azure_event_hub/kafka:
+  protocol: kafka
+  event_hub:
+    name: hubName
+    namespace: namespace.servicebus.windows.net
+    shared_access_key_name: RootManageSharedAccessKey
+    shared_access_key: superSecret1234=
+
+azure_event_hub/kafka_auth:
+  protocol: kafka
+  event_hub:
+    name: hubName
+    namespace: namespace.servicebus.windows.net
+  auth: azureauth
+
+azure_event_hub/kafka_invalid_protocol:
+  protocol: grpc
+  event_hub:
+    name: hubName
+    namespace: namespace.servicebus.windows.net
+    shared_access_key_name: RootManageSharedAccessKey
+    shared_access_key: superSecret1234=
+
+azure_event_hub/kafka_with_blob_checkpoint_store:
+  protocol: kafka
+  event_hub:
+    name: hubName
+    namespace: namespace.servicebus.windows.net
+    shared_access_key_name: RootManageSharedAccessKey
+    shared_access_key: superSecret1234=
+  blob_checkpoint_store:
+    connection: DefaultEndpointsProtocol=https;AccountName=myaccount;AccountKey=mykey;EndpointSuffix=core.windows.net
+    container_name: eventhub-checkpoints
+
+azure_event_hub/kafka_with_partition:
+  protocol: kafka
+  event_hub:
+    name: hubName
+    namespace: namespace.servicebus.windows.net
+    shared_access_key_name: RootManageSharedAccessKey
+    shared_access_key: superSecret1234=
+  partition: "0"

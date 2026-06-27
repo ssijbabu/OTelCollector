@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-gateway-config
+  namespace: otel-gateway
+data:
+  config.yaml: |
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+      azureauth:
+
+    receivers:
+      # Kafka protocol: multiple gateway replicas share the same consumer group,
+      # so Event Hub distributes partitions across them automatically.
+      azure_event_hub:
+        protocol: kafka
+        event_hub:
+          namespace: ${env:EVENTHUB_NAMESPACE}
+          name: ${env:EVENTHUB_NAME}
+        auth: azureauth
+        group: otel-gateway
+
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 800
+        spike_limit_mib: 200
+
+      # Re-stamp cluster identity in case upstream signals are missing it.
+      # Uses insert so attributes already set by the collector are not overwritten.
+      resource/cluster:
+        attributes:
+        - key: k8s.cluster.name
+          value: ${env:K8S_CLUSTER_NAME}
+          action: insert
+        - key: cloud.provider
+          value: ${env:CLOUD_PROVIDER}
+          action: insert
+        - key: cloud.platform
+          value: ${env:CLOUD_PLATFORM}
+          action: insert
+        - key: cloud.region
+          value: ${env:CLOUD_REGION}
+          action: insert
+        - key: deployment.environment.name
+          value: ${env:DEPLOYMENT_ENVIRONMENT}
+          action: insert
+
+      batch:
+        send_batch_size: 1024
+        send_batch_max_size: 2048
+        timeout: 5s
+
+    exporters:
+      # Replace with production backends:
+      #   elasticsearch, prometheus, jaeger, otlp, etc.
+      debug:
+        verbosity: normal
+
+    service:
+      extensions: [health_check, azureauth]
+
+      telemetry:
+        logs:
+          level: warn
+
+      pipelines:
+        logs:
+          receivers: [azure_event_hub]
+          processors: [memory_limiter, resource/cluster, batch]
+          exporters: [debug]

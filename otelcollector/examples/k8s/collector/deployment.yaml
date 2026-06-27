@@ -1,0 +1,122 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: otel-collector
+  namespace: otel-collector
+  labels:
+    app: otel-collector
+spec:
+  selector:
+    matchLabels:
+      app: otel-collector
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: otel-collector
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: otel-collector
+
+      # Tolerate all node taints so the collector runs on every node
+      # including control-plane and tainted worker nodes
+      tolerations:
+      - operator: Exists
+
+      containers:
+      - name: otel-collector
+        # Replace with your ACR image path, e.g. myregistry.azurecr.io/otelcollector:latest
+        image: <REGISTRY>.azurecr.io/otelcollector:latest
+        imagePullPolicy: IfNotPresent
+        args:
+        - --config=/etc/otelcol/config.yaml
+        ports:
+        - name: otlp-grpc
+          containerPort: 4317
+          protocol: TCP
+        - name: otlp-http
+          containerPort: 4318
+          protocol: TCP
+        - name: health
+          containerPort: 13133
+          protocol: TCP
+        env:
+        - name: EVENTHUB_NAMESPACE
+          valueFrom:
+            configMapKeyRef:
+              name: otel-collector-env
+              key: namespace
+        - name: EVENTHUB_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: otel-collector-env
+              key: hub-name
+        - name: K8S_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: K8S_CLUSTER_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: cluster-info
+              key: k8s.cluster.name
+        - name: CLOUD_PROVIDER
+          valueFrom:
+            configMapKeyRef:
+              name: cluster-info
+              key: cloud.provider
+        - name: CLOUD_PLATFORM
+          valueFrom:
+            configMapKeyRef:
+              name: cluster-info
+              key: cloud.platform
+        - name: CLOUD_REGION
+          valueFrom:
+            configMapKeyRef:
+              name: cluster-info
+              key: cloud.region
+        - name: DEPLOYMENT_ENVIRONMENT
+          valueFrom:
+            configMapKeyRef:
+              name: cluster-info
+              key: deployment.environment.name
+        volumeMounts:
+        - name: config
+          mountPath: /etc/otelcol
+          readOnly: true
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /
+            port: health
+          initialDelaySeconds: 15
+          periodSeconds: 20
+          failureThreshold: 3
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /
+            port: health
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          failureThreshold: 3
+          timeoutSeconds: 5
+        startupProbe:
+          httpGet:
+            path: /
+            port: health
+          failureThreshold: 12
+          periodSeconds: 5
+      volumes:
+      - name: config
+        configMap:
+          name: otel-collector-config

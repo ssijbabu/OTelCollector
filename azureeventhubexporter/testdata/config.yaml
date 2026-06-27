@@ -1,0 +1,118 @@
+# Valid: SAS key authentication
+azure_event_hub:
+  event_hub:
+    namespace: namespace.servicebus.windows.net
+    name: hubName
+    shared_access_key_name: RootManageSharedAccessKey
+    shared_access_key: superSecret1234=
+
+# Valid: auth extension (no SAS key fields needed)
+azure_event_hub/auth:
+  event_hub:
+    namespace: namespace.servicebus.windows.net
+    name: hubName
+  auth: azureauth
+
+# Valid: Kafka protocol with SAS key
+azure_event_hub/kafka:
+  protocol: kafka
+  event_hub:
+    namespace: namespace.servicebus.windows.net
+    name: hubName
+    shared_access_key_name: RootManageSharedAccessKey
+    shared_access_key: superSecret1234=
+
+# Valid: Kafka protocol with auth extension
+azure_event_hub/kafka_auth:
+  protocol: kafka
+  event_hub:
+    namespace: namespace.servicebus.windows.net
+    name: hubName
+  auth: azureauth
+
+# Valid: partition traces by trace ID
+azure_event_hub/partition_traces:
+  event_hub:
+    namespace: namespace.servicebus.windows.net
+    name: hubName
+    shared_access_key_name: RootManageSharedAccessKey
+    shared_access_key: superSecret1234=
+  partition_traces_by_id: true
+
+# Valid: partition metrics by resource attributes
+azure_event_hub/partition_metrics:
+  event_hub:
+    namespace: namespace.servicebus.windows.net
+    name: hubName
+    shared_access_key_name: RootManageSharedAccessKey
+    shared_access_key: superSecret1234=
+  partition_metrics_by_resource_attributes: true
+
+# Valid: partition logs by resource attributes
+azure_event_hub/partition_logs_by_resource:
+  event_hub:
+    namespace: namespace.servicebus.windows.net
+    name: hubName
+    shared_access_key_name: RootManageSharedAccessKey
+    shared_access_key: superSecret1234=
+  partition_logs_by_resource_attributes: true
+
+# Valid: partition logs by trace ID
+azure_event_hub/partition_logs_by_trace:
+  event_hub:
+    namespace: namespace.servicebus.windows.net
+    name: hubName
+    shared_access_key_name: RootManageSharedAccessKey
+    shared_access_key: superSecret1234=
+  partition_logs_by_trace_id: true
+
+# Valid: queue and retry tuning
+azure_event_hub/queue:
+  event_hub:
+    namespace: namespace.servicebus.windows.net
+    name: hubName
+    shared_access_key_name: RootManageSharedAccessKey
+    shared_access_key: superSecret1234=
+  sending_queue:
+    enabled: true
+    num_consumers: 4
+    queue_size: 1000
+  retry_on_failure:
+    enabled: true
+    initial_interval: 5s
+    max_interval: 30s
+    max_elapsed_time: 300s
+
+# Error: no event_hub configured
+azure_event_hub/missing_connection:
+
+# Error: auth set but event_hub.name is missing
+azure_event_hub/auth_missing_name:
+  auth: azureauth
+  event_hub:
+    namespace: namespace.servicebus.windows.net
+
+# Error: auth set but event_hub.namespace is missing
+azure_event_hub/auth_missing_namespace:
+  auth: azureauth
+  event_hub:
+    name: hubName
+
+# Error: partition_logs_by_resource_attributes and partition_logs_by_trace_id are mutually exclusive
+azure_event_hub/partition_logs_exclusive:
+  event_hub:
+    namespace: namespace.servicebus.windows.net
+    name: hubName
+    shared_access_key_name: RootManageSharedAccessKey
+    shared_access_key: superSecret1234=
+  partition_logs_by_resource_attributes: true
+  partition_logs_by_trace_id: true
+
+# Error: unsupported protocol
+azure_event_hub/invalid_protocol:
+  protocol: grpc
+  event_hub:
+    namespace: namespace.servicebus.windows.net
+    name: hubName
+    shared_access_key_name: RootManageSharedAccessKey
+    shared_access_key: superSecret1234=

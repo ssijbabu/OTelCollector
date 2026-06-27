@@ -1,0 +1,11 @@
+# Compiled binaries
+otelcollector/OTelCollector
+otelcollector/otelcol-azureeventhub
+otelcollector/examples/binary/OTelCollector
+
+# Go test artifacts
+*.test
+*.out
+
+# macOS
+.DS_Store

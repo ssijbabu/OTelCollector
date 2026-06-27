@@ -1,0 +1,126 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-gateway
+  namespace: otel-gateway
+  labels:
+    app: otel-gateway
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: otel-gateway
+  template:
+    metadata:
+      labels:
+        app: otel-gateway
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: otel-gateway
+
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app: otel-gateway
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app: otel-gateway
+
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: otel-gateway
+            topologyKey: kubernetes.io/hostname
+
+      containers:
+      - name: otel-gateway
+        # Replace with your ACR image path, e.g. myregistry.azurecr.io/otelcollector:latest
+        image: <REGISTRY>.azurecr.io/otelcollector:latest
+        imagePullPolicy: IfNotPresent
+        args:
+        - --config=/etc/otelcol/config.yaml
+        ports:
+        - name: health
+          containerPort: 13133
+          protocol: TCP
+        env:
+        - name: EVENTHUB_NAMESPACE
+          valueFrom:
+            configMapKeyRef:
+              name: otel-gateway-env
+              key: namespace
+        - name: EVENTHUB_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: otel-gateway-env
+              key: hub-name
+        - name: K8S_CLUSTER_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: cluster-info
+              key: k8s.cluster.name
+        - name: CLOUD_PROVIDER
+          valueFrom:
+            configMapKeyRef:
+              name: cluster-info
+              key: cloud.provider
+        - name: CLOUD_PLATFORM
+          valueFrom:
+            configMapKeyRef:
+              name: cluster-info
+              key: cloud.platform
+        - name: CLOUD_REGION
+          valueFrom:
+            configMapKeyRef:
+              name: cluster-info
+              key: cloud.region
+        - name: DEPLOYMENT_ENVIRONMENT
+          valueFrom:
+            configMapKeyRef:
+              name: cluster-info
+              key: deployment.environment.name
+        volumeMounts:
+        - name: config
+          mountPath: /etc/otelcol
+          readOnly: true
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+        livenessProbe:
+          httpGet:
+            path: /
+            port: health
+          initialDelaySeconds: 15
+          periodSeconds: 20
+          failureThreshold: 3
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /
+            port: health
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          failureThreshold: 3
+          timeoutSeconds: 5
+        startupProbe:
+          httpGet:
+            path: /
+            port: health
+          failureThreshold: 12
+          periodSeconds: 5
+      volumes:
+      - name: config
+        configMap:
+          name: otel-gateway-config

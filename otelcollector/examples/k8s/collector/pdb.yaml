@@ -1,0 +1,12 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: otel-collector
+  namespace: otel-collector
+spec:
+  # For a DaemonSet, maxUnavailable is more appropriate than minAvailable:
+  # allows rolling node drains without halting the entire rollout.
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: otel-collector

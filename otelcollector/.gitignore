@@ -1,0 +1,6 @@
+# Compiled binaries (name derives from manifest.yaml dist.name — make generate updates this)
+OTelCollector
+
+# Go test artifacts
+*.test
+*.out

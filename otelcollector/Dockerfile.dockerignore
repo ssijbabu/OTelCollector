@@ -1,0 +1,13 @@
+.git
+
+# OCB-generated files — recreated inside the Docker build
+otelcollector/main.go
+otelcollector/main_others.go
+otelcollector/main_windows.go
+otelcollector/components.go
+otelcollector/go.mod
+otelcollector/go.sum
+
+# Compiled binaries
+otelcollector/OTelCollector
+otelcollector/examples/binary/OTelCollector

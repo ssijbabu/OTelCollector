@@ -1,0 +1,149 @@
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  # Elastic APM intake — receives data from Elastic APM agents (v2/v3 intake protocol).
+  # elastic_apm_intake:
+  #   auth:
+  #     authenticator: api_key
+
+  # Host metrics — collects CPU, memory, disk, network from the host.
+  # hostmetrics:
+  #   collection_interval: 30s
+  #   scrapers:
+  #     cpu: {}
+  #     memory: {}
+  #     disk: {}
+  #     network: {}
+  #     load: {}
+
+  # File log — tails log files from disk.
+  # filelog:
+  #   include: [/var/log/**/*.log]
+  #   start_at: end
+
+  azure_event_hub:
+    protocol: kafka
+    group: docker-test
+    event_hub:
+      namespace: ${env:EVENTHUB_NAMESPACE}
+      name: ${env:EVENTHUB_NAME}
+      shared_access_key_name: ${env:EVENTHUB_SAS_KEY_NAME}
+      shared_access_key: ${env:EVENTHUB_SAS_KEY}
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+
+  # Resource detection enriches spans/metrics/logs with host and cloud metadata.
+  # Mirrors what the EDOT Collector does by default.
+  resourcedetection:
+    detectors: [env, system, azure]
+    timeout: 10s
+    override: false
+
+  batch:
+    send_batch_size: 512
+    timeout: 5s
+
+  # Elastic APM processor — normalises spans and transaction events from Elastic
+  # APM agents into OTel-standard signals before forwarding.
+  # elastic_apm: {}
+
+  # Attribute manipulation (add, delete, update, hash, extract fields).
+  # attributes:
+  #   actions:
+  #     - key: environment
+  #       value: production
+  #       action: insert
+
+exporters:
+  debug:
+    verbosity: detailed
+
+  # Set these env vars before running locally:
+  #   EVENTHUB_NAMESPACE   e.g. myns.servicebus.windows.net
+  #   EVENTHUB_NAME        Event Hub name (entity)
+  #   EVENTHUB_SAS_KEY_NAME  e.g. RootManageSharedAccessKey
+  #   EVENTHUB_SAS_KEY     the SAS key value
+  azure_event_hub:
+    protocol: amqp
+    event_hub:
+      namespace: ${env:EVENTHUB_NAMESPACE}
+      name: ${env:EVENTHUB_NAME}
+      shared_access_key_name: ${env:EVENTHUB_SAS_KEY_NAME}
+      shared_access_key: ${env:EVENTHUB_SAS_KEY}
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 5m
+
+  azure_event_hub/kafka:
+    protocol: kafka
+    event_hub:
+      namespace: ${env:EVENTHUB_NAMESPACE}
+      name: ${env:EVENTHUB_NAME}
+      shared_access_key_name: ${env:EVENTHUB_SAS_KEY_NAME}
+      shared_access_key: ${env:EVENTHUB_SAS_KEY}
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 5m
+
+  # Elasticsearch — send telemetry directly to Elastic Cloud or a self-managed cluster.
+  # elasticsearch:
+  #   endpoints: [${env:ELASTICSEARCH_URL}]
+  #   api_key: ${env:ELASTICSEARCH_API_KEY}
+  #   mapping:
+  #     mode: ecs
+  #   logs_index: logs-otel-default
+  #   traces_index: traces-apm-default
+  #   metrics_index: metrics-otel-default
+
+service:
+  extensions: [health_check]
+
+  telemetry:
+    logs:
+      level: info
+
+  pipelines:
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resourcedetection, batch]
+      exporters: [debug, azure_event_hub]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resourcedetection, batch]
+      exporters: [debug, azure_event_hub]
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resourcedetection, batch]
+      exporters: [debug, azure_event_hub]
+    logs/kafka:
+      receivers: [otlp]
+      processors: [memory_limiter, resourcedetection, batch]
+      exporters: [azure_event_hub/kafka]
+    metrics/kafka:
+      receivers: [otlp]
+      processors: [memory_limiter, resourcedetection, batch]
+      exporters: [azure_event_hub/kafka]
+    traces/kafka:
+      receivers: [otlp]
+      processors: [memory_limiter, resourcedetection, batch]
+      exporters: [azure_event_hub/kafka]
+    logs/from_hub_kafka:
+      receivers: [azure_event_hub]
+      processors: [memory_limiter, batch]
+      exporters: [debug]

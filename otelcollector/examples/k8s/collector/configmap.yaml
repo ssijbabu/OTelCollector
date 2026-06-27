@@ -1,0 +1,97 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: otel-collector
+data:
+  config.yaml: |
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+      azureauth:
+
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+            max_recv_msg_size_mib: 4
+          http:
+            endpoint: 0.0.0.0:4318
+
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 400
+        spike_limit_mib: 100
+
+      # Stamp cluster identity onto every signal as resource attributes.
+      # Values come from the cluster-info ConfigMap via env vars in the DaemonSet.
+      resource/cluster:
+        attributes:
+        - key: k8s.cluster.name
+          value: ${env:K8S_CLUSTER_NAME}
+          action: upsert
+        - key: k8s.node.name
+          value: ${env:K8S_NODE_NAME}
+          action: upsert
+        - key: cloud.provider
+          value: ${env:CLOUD_PROVIDER}
+          action: upsert
+        - key: cloud.platform
+          value: ${env:CLOUD_PLATFORM}
+          action: upsert
+        - key: cloud.region
+          value: ${env:CLOUD_REGION}
+          action: upsert
+        - key: deployment.environment.name
+          value: ${env:DEPLOYMENT_ENVIRONMENT}
+          action: upsert
+
+      resourcedetection:
+        detectors: [env, system]
+        timeout: 10s
+        override: false
+
+      batch:
+        send_batch_size: 1024
+        send_batch_max_size: 2048
+        timeout: 5s
+
+    exporters:
+      azure_event_hub:
+        protocol: kafka
+        event_hub:
+          namespace: ${env:EVENTHUB_NAMESPACE}
+          name: ${env:EVENTHUB_NAME}
+        auth: azureauth
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 60s
+          max_elapsed_time: 10m
+        sending_queue:
+          enabled: true
+          num_consumers: 10
+          queue_size: 5000
+
+    service:
+      extensions: [health_check, azureauth]
+
+      telemetry:
+        logs:
+          level: warn
+
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, resource/cluster, resourcedetection, batch]
+          exporters: [azure_event_hub]
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, resource/cluster, resourcedetection, batch]
+          exporters: [azure_event_hub]
+        logs:
+          receivers: [otlp]
+          processors: [memory_limiter, resource/cluster, resourcedetection, batch]
+          exporters: [azure_event_hub]

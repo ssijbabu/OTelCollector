@@ -1,0 +1,87 @@
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13134
+
+  # Azure Service Principal with certificate authentication.
+  # Required env vars:
+  #   AZURE_TENANT_ID               Azure AD tenant ID
+  #   AZURE_CLIENT_ID               App registration client ID
+  #   AZURE_CLIENT_CERTIFICATE_PATH Path to a PEM file containing the certificate and private key
+  #
+  # The managed identity must have the following roles on the Event Hub namespace:
+  #   Azure Event Hubs Data Sender   (for the exporter)
+  #   Azure Event Hubs Data Receiver (for the receiver)
+  azureauth:
+    service_principal:
+      tenant_id: ${env:AZURE_TENANT_ID}
+      client_id: ${env:AZURE_CLIENT_ID}
+      client_certificate: ${env:AZURE_CLIENT_CERTIFICATE_PATH}
+    scopes:
+      - https://eventhubs.azure.net/.default
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:14317
+      http:
+        endpoint: 0.0.0.0:14318
+
+  azure_event_hub:
+    protocol: kafka
+    group: binary-test
+    auth: azureauth
+    event_hub:
+      namespace: ${env:EVENTHUB_NAMESPACE}
+      name: ${env:EVENTHUB_NAME}
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+  batch:
+    send_batch_size: 512
+    timeout: 5s
+
+exporters:
+  azure_event_hub:
+    protocol: kafka
+    auth: azureauth
+    event_hub:
+      namespace: ${env:EVENTHUB_NAMESPACE}
+      name: ${env:EVENTHUB_NAME}
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 60s
+      max_elapsed_time: 10m
+
+  debug:
+    verbosity: normal
+
+service:
+  extensions: [health_check, azureauth]
+
+  telemetry:
+    logs:
+      level: info
+
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [azure_event_hub]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [azure_event_hub]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [azure_event_hub]
+
+    logs/from_hub:
+      receivers: [azure_event_hub]
+      processors: [memory_limiter, batch]
+      exporters: [debug]

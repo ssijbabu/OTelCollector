@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-env
+  namespace: otel-collector
+data:
+  namespace: <EVENTHUB_NAMESPACE>   # e.g. opentel-ssijbabu.servicebus.windows.net
+  hub-name: <EVENTHUB_HUB_NAME>     # e.g. otel-logs

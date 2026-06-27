@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: otel-collector
+  labels:
+    app: otel-collector
+spec:
+  # ClusterIP — apps on the same node connect via the node IP (see below)
+  # Apps should set their OTLP endpoint to http://$(NODE_IP):4317 using the
+  # downward API: fieldRef.fieldPath: status.hostIP
+  type: ClusterIP
+  selector:
+    app: otel-collector
+  ports:
+  - name: otlp-grpc
+    port: 4317
+    targetPort: otlp-grpc
+    protocol: TCP
+  - name: otlp-http
+    port: 4318
+    targetPort: otlp-http
+    protocol: TCP
+  - name: health
+    port: 13133
+    targetPort: health
+    protocol: TCP
