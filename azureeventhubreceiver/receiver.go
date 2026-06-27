@@ -4,6 +4,7 @@
 package azureeventhubreceiver // import "github.com/ssijbabu/azureeventhubreceiver"
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 
@@ -58,7 +59,19 @@ func (receiver *eventhubReceiver) setNextTracesConsumer(nextTracesConsumer consu
 }
 
 func (receiver *eventhubReceiver) consume(ctx context.Context, event *azureEvent) error {
-	switch receiver.signal {
+	// When all three pipelines share this receiver (single Event Hub topic carrying
+	// mixed signal types), the signal field reflects only the first pipeline that
+	// registered. Detect the actual type from the OTLP JSON root key so that logs,
+	// metrics, and traces are each routed to the correct consumer.
+	sig := receiver.signal
+	multiSignal := (receiver.nextLogsConsumer != nil && receiver.nextTracesConsumer != nil) ||
+		(receiver.nextLogsConsumer != nil && receiver.nextMetricsConsumer != nil) ||
+		(receiver.nextTracesConsumer != nil && receiver.nextMetricsConsumer != nil)
+	if multiSignal {
+		sig = detectSignal(event.Data())
+	}
+
+	switch sig {
 	case pipeline.SignalLogs:
 		return receiver.consumeLogs(ctx, event)
 	case pipeline.SignalMetrics:
@@ -66,8 +79,21 @@ func (receiver *eventhubReceiver) consume(ctx context.Context, event *azureEvent
 	case pipeline.SignalTraces:
 		return receiver.consumeTraces(ctx, event)
 	default:
-		return fmt.Errorf("invalid data type: %v", receiver.signal)
+		return fmt.Errorf("invalid data type: %v", sig)
 	}
+}
+
+// detectSignal identifies the OTLP signal type from the JSON root key.
+// OTLP JSON uses "resourceSpans" for traces, "resourceMetrics" for metrics,
+// and "resourceLogs" for logs as the top-level discriminator.
+func detectSignal(data []byte) pipeline.Signal {
+	if bytes.Contains(data, []byte(`"resourceSpans"`)) {
+		return pipeline.SignalTraces
+	}
+	if bytes.Contains(data, []byte(`"resourceMetrics"`)) {
+		return pipeline.SignalMetrics
+	}
+	return pipeline.SignalLogs
 }
 
 func (receiver *eventhubReceiver) consumeLogs(ctx context.Context, event *azureEvent) error {
