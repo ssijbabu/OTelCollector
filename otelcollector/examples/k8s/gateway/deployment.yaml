@@ -57,35 +57,45 @@ spec:
             configMapKeyRef:
               name: otel-gateway-env
               key: namespace
-        - name: EVENTHUB_NAME
+        - name: EVENTHUB_LOGS_HUB_NAME
           valueFrom:
             configMapKeyRef:
               name: otel-gateway-env
-              key: hub-name
+              key: logs-hub-name
+        - name: EVENTHUB_METRICS_HUB_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: otel-gateway-env
+              key: metrics-hub-name
+        - name: EVENTHUB_TRACES_HUB_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: otel-gateway-env
+              key: traces-hub-name
         - name: K8S_CLUSTER_NAME
           valueFrom:
             configMapKeyRef:
-              name: cluster-info
+              name: otel-gateway-env
               key: k8s.cluster.name
         - name: CLOUD_PROVIDER
           valueFrom:
             configMapKeyRef:
-              name: cluster-info
+              name: otel-gateway-env
               key: cloud.provider
         - name: CLOUD_PLATFORM
           valueFrom:
             configMapKeyRef:
-              name: cluster-info
+              name: otel-gateway-env
               key: cloud.platform
         - name: CLOUD_REGION
           valueFrom:
             configMapKeyRef:
-              name: cluster-info
+              name: otel-gateway-env
               key: cloud.region
         - name: DEPLOYMENT_ENVIRONMENT
           valueFrom:
             configMapKeyRef:
-              name: cluster-info
+              name: otel-gateway-env
               key: deployment.environment.name
         volumeMounts:
         - name: config

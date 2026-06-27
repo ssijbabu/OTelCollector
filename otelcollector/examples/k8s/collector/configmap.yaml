@@ -8,7 +8,8 @@ data:
     extensions:
       health_check:
         endpoint: 0.0.0.0:13133
-      azureauth:
+      azure_auth:
+        workload_identity:
 
     receivers:
       otlp:
@@ -26,7 +27,7 @@ data:
         spike_limit_mib: 100
 
       # Stamp cluster identity onto every signal as resource attributes.
-      # Values come from the cluster-info ConfigMap via env vars in the DaemonSet.
+      # Values come from the otel-collector-env ConfigMap via env vars in the DaemonSet.
       resource/cluster:
         attributes:
         - key: k8s.cluster.name
@@ -59,12 +60,44 @@ data:
         timeout: 5s
 
     exporters:
-      azure_event_hub:
+      azure_event_hub/logs:
         protocol: kafka
         event_hub:
           namespace: ${env:EVENTHUB_NAMESPACE}
-          name: ${env:EVENTHUB_NAME}
-        auth: azureauth
+          name: ${env:EVENTHUB_LOGS_HUB_NAME}
+        auth: azure_auth
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 60s
+          max_elapsed_time: 10m
+        sending_queue:
+          enabled: true
+          num_consumers: 10
+          queue_size: 5000
+
+      azure_event_hub/metrics:
+        protocol: kafka
+        event_hub:
+          namespace: ${env:EVENTHUB_NAMESPACE}
+          name: ${env:EVENTHUB_METRICS_HUB_NAME}
+        auth: azure_auth
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 60s
+          max_elapsed_time: 10m
+        sending_queue:
+          enabled: true
+          num_consumers: 10
+          queue_size: 5000
+
+      azure_event_hub/traces:
+        protocol: kafka
+        event_hub:
+          namespace: ${env:EVENTHUB_NAMESPACE}
+          name: ${env:EVENTHUB_TRACES_HUB_NAME}
+        auth: azure_auth
         retry_on_failure:
           enabled: true
           initial_interval: 5s
@@ -76,22 +109,22 @@ data:
           queue_size: 5000
 
     service:
-      extensions: [health_check, azureauth]
+      extensions: [health_check, azure_auth]
 
       telemetry:
         logs:
           level: warn
 
       pipelines:
-        traces:
-          receivers: [otlp]
-          processors: [memory_limiter, resource/cluster, resourcedetection, batch]
-          exporters: [azure_event_hub]
-        metrics:
-          receivers: [otlp]
-          processors: [memory_limiter, resource/cluster, resourcedetection, batch]
-          exporters: [azure_event_hub]
         logs:
           receivers: [otlp]
           processors: [memory_limiter, resource/cluster, resourcedetection, batch]
-          exporters: [azure_event_hub]
+          exporters: [azure_event_hub/logs]
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, resource/cluster, resourcedetection, batch]
+          exporters: [azure_event_hub/metrics]
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, resource/cluster, resourcedetection, batch]
+          exporters: [azure_event_hub/traces]

@@ -8,18 +8,35 @@ data:
     extensions:
       health_check:
         endpoint: 0.0.0.0:13133
-      azureauth:
+      azure_auth:
+        workload_identity:
 
     receivers:
-      # Kafka protocol: multiple gateway replicas share the same consumer group,
+      # Kafka protocol: multiple gateway replicas share the same consumer group per topic,
       # so Event Hub distributes partitions across them automatically.
-      azure_event_hub:
+      azure_event_hub/logs:
         protocol: kafka
         event_hub:
           namespace: ${env:EVENTHUB_NAMESPACE}
-          name: ${env:EVENTHUB_NAME}
-        auth: azureauth
-        group: otel-gateway
+          name: ${env:EVENTHUB_LOGS_HUB_NAME}
+        auth: azure_auth
+        group: otel-gateway-logs
+
+      azure_event_hub/metrics:
+        protocol: kafka
+        event_hub:
+          namespace: ${env:EVENTHUB_NAMESPACE}
+          name: ${env:EVENTHUB_METRICS_HUB_NAME}
+        auth: azure_auth
+        group: otel-gateway-metrics
+
+      azure_event_hub/traces:
+        protocol: kafka
+        event_hub:
+          namespace: ${env:EVENTHUB_NAMESPACE}
+          name: ${env:EVENTHUB_TRACES_HUB_NAME}
+        auth: azure_auth
+        group: otel-gateway-traces
 
     processors:
       memory_limiter:
@@ -59,7 +76,7 @@ data:
         verbosity: normal
 
     service:
-      extensions: [health_check, azureauth]
+      extensions: [health_check, azure_auth]
 
       telemetry:
         logs:
@@ -67,6 +84,14 @@ data:
 
       pipelines:
         logs:
-          receivers: [azure_event_hub]
+          receivers: [azure_event_hub/logs]
+          processors: [memory_limiter, resource/cluster, batch]
+          exporters: [debug]
+        metrics:
+          receivers: [azure_event_hub/metrics]
+          processors: [memory_limiter, resource/cluster, batch]
+          exporters: [debug]
+        traces:
+          receivers: [azure_event_hub/traces]
           processors: [memory_limiter, resource/cluster, batch]
           exporters: [debug]

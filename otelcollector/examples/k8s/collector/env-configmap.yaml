@@ -4,5 +4,12 @@ metadata:
   name: otel-collector-env
   namespace: otel-collector
 data:
-  namespace: <EVENTHUB_NAMESPACE>   # e.g. opentel-ssijbabu.servicebus.windows.net
-  hub-name: <EVENTHUB_HUB_NAME>     # e.g. otel-logs
+  namespace: <EVENTHUB_NAMESPACE>             # e.g. opentel-ssijbabu.servicebus.windows.net
+  logs-hub-name: <EVENTHUB_LOGS_HUB_NAME>     # e.g. otel-logs
+  metrics-hub-name: <EVENTHUB_METRICS_HUB_NAME> # e.g. otel-metrics
+  traces-hub-name: <EVENTHUB_TRACES_HUB_NAME> # e.g. otel-traces
+  k8s.cluster.name: <CLUSTER_NAME>
+  cloud.provider: azure
+  cloud.platform: azure_aks
+  cloud.region: <AZURE_REGION>
+  deployment.environment.name: <ENVIRONMENT>

@@ -3,6 +3,9 @@ otelcollector/OTelCollector
 otelcollector/otelcol-azureeventhub
 otelcollector/examples/binary/OTelCollector
 
+# OCB (OpenTelemetry Collector Builder) tool — downloaded by `make install-ocb`, not committed
+otelcollector/builder
+
 # Go test artifacts
 *.test
 *.out
