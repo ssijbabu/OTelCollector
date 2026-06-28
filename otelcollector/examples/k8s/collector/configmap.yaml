@@ -10,6 +10,9 @@ data:
         endpoint: 0.0.0.0:13133
       azure_auth:
         workload_identity:
+          client_id: ${env:AZURE_CLIENT_ID}
+          tenant_id: ${env:AZURE_TENANT_ID}
+          federated_token_file: ${env:AZURE_FEDERATED_TOKEN_FILE}
 
     receivers:
       otlp:
