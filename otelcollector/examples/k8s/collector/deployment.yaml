@@ -19,6 +19,13 @@ spec:
         app: otel-collector
         azure.workload.identity/use: "true"
     spec:
+      securityContext:
+        fsGroup: 10001
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+          
       serviceAccountName: otel-collector
 
       # Tolerate all node taints so the collector runs on every node
@@ -31,8 +38,19 @@ spec:
         # Replace with your ACR image path, e.g. myregistry.azurecr.io/otelcollector:latest
         image: <REGISTRY>.azurecr.io/otelcollector:latest
         imagePullPolicy: IfNotPresent
+
+        securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            
         args:
         - --config=/etc/otelcol/config.yaml
+        
         ports:
         - name: otlp-grpc
           containerPort: 4317
