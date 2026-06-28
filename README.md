@@ -425,6 +425,31 @@ kubectl apply -f examples/k8s/gateway/deployment.yaml
 kubectl apply -f examples/k8s/gateway/pdb.yaml
 ```
 
+### Collector log levels
+
+The collector's own internal logs are controlled by `service.telemetry.logs.level` in the config. This is separate from the telemetry data it processes.
+
+| Level | When to use |
+|---|---|
+| `debug` | Development and troubleshooting — logs every component lifecycle event, pipeline startup, auth token fetch, and Kafka consumer group join |
+| `info` | Staging — logs normal operational events; the `debug` exporter emits received telemetry at this level |
+| `warn` | Production — logs only unexpected conditions; silent under normal operation |
+| `error` | Production (minimal) — logs only failures |
+
+To change the level on a running collector without redeployment:
+
+```sh
+# Patch the ConfigMap
+kubectl patch configmap otel-collector-config -n otel-collector \
+  --type=json \
+  -p '[{"op":"replace","path":"/data/config.yaml","value":"..."}]'
+
+# Then restart the DaemonSet to pick up the change
+kubectl rollout restart daemonset/otel-collector -n otel-collector
+```
+
+> **Note:** `service.telemetry.logs.level` controls the collector process's own logs. The `debug` exporter's output verbosity is a separate setting under `exporters.debug.verbosity` (`basic`, `normal`, `detailed`) and is unaffected by the log level.
+
 ### Azure Workload Identity setup
 
 1. Create a user-assigned managed identity and federate it with the AKS OIDC issuer:

@@ -116,7 +116,7 @@ data:
 
       telemetry:
         logs:
-          level: warn
+          level: debug
 
       pipelines:
         logs:
