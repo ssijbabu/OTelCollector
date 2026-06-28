@@ -83,7 +83,7 @@ data:
 
       telemetry:
         logs:
-          level: warn
+          level: info
 
       pipelines:
         logs:
