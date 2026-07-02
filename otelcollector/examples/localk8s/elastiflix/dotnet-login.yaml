@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dotnet-login
+  namespace: elastiflix
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dotnet-login
+  template:
+    metadata:
+      labels:
+        app: dotnet-login
+    spec:
+      containers:
+      - name: dotnet-login
+        image: docker.elastic.co/demos/workshop/observability/elastiflix-dotnet-login-otel-auto:8.9.0-10
+        ports:
+        - containerPort: 80
+        env:
+        - name: REDIS_HOST
+          value: redis.elastiflix.svc.cluster.local
+        - name: REDIS_PORT
+          value: "6379"
+        - name: OTEL_SERVICE_NAME
+          value: dotnet-login
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: http://otel-collector.otel-collector.svc.cluster.local:4317
+        - name: OTEL_EXPORTER_OTLP_HEADERS
+          value: "Authorization=Bearer local"
+        - name: OTEL_RESOURCE_ATTRIBUTES
+          value: service.version=1.0,deployment.environment=production
+        - name: OTEL_TRACES_EXPORTER
+          value: otlp
+        - name: OTEL_METRICS_EXPORTER
+          value: otlp
+        - name: OTEL_LOGS_EXPORTER
+          value: otlp
+        - name: OTEL_EXPORTER_OTLP_PROTOCOL
+          value: grpc
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        readinessProbe:
+          httpGet:
+            path: /login
+            port: 80
+          initialDelaySeconds: 15
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dotnet-login
+  namespace: elastiflix
+spec:
+  selector:
+    app: dotnet-login
+  ports:
+  - port: 80
+    targetPort: 80

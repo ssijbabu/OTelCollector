@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apm-server-config
+  namespace: elastic
+data:
+  apm-server.yml: |
+    apm-server:
+      host: "0.0.0.0:8200"
+
+    output.elasticsearch:
+      hosts: ["http://elasticsearch.elastic.svc.cluster.local:9200"]
+      username: "elastic"
+      password: "elastic123"
+
+    logging.level: info

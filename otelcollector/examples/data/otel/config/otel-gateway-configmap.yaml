@@ -1,0 +1,92 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-gateway-config
+  namespace: otel-gateway
+data:
+  config.yaml: |
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+
+    receivers:
+      kafka:
+        brokers: ["kafka-client.kafka.svc.cluster.local:9092"]
+        group_id: otel-gateway
+        logs:
+          topics: ["otel-logs"]
+          encoding: otlp_json
+        metrics:
+          topics: ["otel-metrics"]
+          encoding: otlp_json
+        traces:
+          topics: ["otel-traces"]
+          encoding: otlp_json
+
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 400
+        spike_limit_mib: 100
+      # elasticapmprocessor enriches OTel spans with APM fields:
+      # transaction.type, transaction.name, transaction.root,
+      # event.outcome, agent.name, span.type, span.subtype, etc.
+      elasticapm/enrich: {}
+      batch:
+        send_batch_size: 512
+        send_batch_max_size: 1024
+        timeout: 5s
+      # Sets elastic.mapping.mode=ecs on the scope of APM connector metrics so the
+      # ES exporter skips the .otel suffix and routes to metrics-apm.* streams.
+      transform/apm_ecs_mode:
+        metric_statements:
+          - context: scope
+            statements:
+              - 'set(attributes["elastic.mapping.mode"], "ecs")'
+
+    connectors:
+      # elasticapmconnector aggregates enriched spans into APM metrics.
+      # Aggregation statements prefix the dataset with "apm." so the final
+      # stream is metrics-apm.service_transaction.1m-default (no .otel suffix
+      # because ECS mode is forced via the transform processor above).
+      elasticapm/metrics:
+        aggregation:
+          statements:
+            - 'set(attributes["data_stream.dataset"], Concat(["apm.", attributes["data_stream.dataset"]], ""))'
+
+    exporters:
+      elasticsearch:
+        endpoints: ["http://elasticsearch.elastic.svc.cluster.local:9200"]
+        user: elastic
+        password: elastic123
+        mapping:
+          mode: otel
+      debug:
+        verbosity: basic
+
+    service:
+      extensions: [health_check]
+      telemetry:
+        logs:
+          level: info
+      pipelines:
+        logs:
+          receivers: [kafka]
+          processors: [memory_limiter, batch]
+          exporters: [elasticsearch, debug]
+
+        metrics:
+          receivers: [kafka]
+          processors: [memory_limiter, batch]
+          exporters: [elasticsearch, debug]
+
+        traces:
+          receivers: [kafka]
+          processors: [memory_limiter, elasticapm/enrich, batch]
+          # connector receives enriched spans and generates APM metrics
+          exporters: [elasticsearch, elasticapm/metrics, debug]
+
+        metrics/apm:
+          receivers: [elasticapm/metrics]
+          processors: [memory_limiter, transform/apm_ecs_mode, batch]
+          exporters: [elasticsearch, debug]

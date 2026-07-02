@@ -1,0 +1,27 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: movie-data-loader
+  namespace: elastiflix
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: movie-data-loader
+        image: docker.elastic.co/demos/workshop/observability/elastiflix-movie-data-loader:8.9.0-10
+        env:
+        - name: ELASTICSEARCH_URL
+          value: http://elasticsearch.elastic.svc.cluster.local:9200
+        - name: ELASTICSEARCH_USERNAME
+          value: elastic
+        - name: ELASTICSEARCH_PASSWORD
+          value: elastic123
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi

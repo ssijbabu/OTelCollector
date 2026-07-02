@@ -149,6 +149,7 @@ for HUB in "$EH_LOGS" "$EH_METRICS" "$EH_TRACES"; do
             --namespace-name "$EH_NAMESPACE" \
             --name "$HUB" \
             --partition-count 4 \
+            --cleanup-policy Delete \
             --retention-time-in-hours 24 \
             --output none
         success "$HUB — created"

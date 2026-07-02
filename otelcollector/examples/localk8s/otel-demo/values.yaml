@@ -1,0 +1,31 @@
+# OTel Demo — route all signals to the OTel Collector first-hop (otel-collector namespace).
+# Collector receives OTLP gRPC on port 4317, enriches with k8s metadata, and forwards
+# to Kafka (topics: otel-traces, otel-logs, otel-metrics). The gateway reads from Kafka,
+# enriches spans with APM fields via elasticapm/enrich, and writes to Elasticsearch.
+
+# Override OTEL_COLLECTOR_NAME so every service's OTLP exporter resolves to
+# the otel-collector Service (port 4317).
+default:
+  envOverrides:
+    - name: OTEL_COLLECTOR_NAME
+      value: otel-collector.otel-collector.svc.cluster.local
+
+# Expose frontend-proxy on a fixed NodePort for local browser access.
+components:
+  frontend-proxy:
+    service:
+      type: NodePort
+      nodePort: 30080
+
+# Disable bundled backends — we send everything to our OTel Collector → Kafka → ES.
+opentelemetry-collector:
+  enabled: false
+
+jaeger:
+  enabled: false
+
+prometheus:
+  enabled: false
+
+grafana:
+  enabled: false

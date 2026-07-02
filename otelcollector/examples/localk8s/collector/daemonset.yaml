@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: otel-node-collector
+  namespace: otel-collector
+  labels:
+    app: otel-node-collector
+spec:
+  selector:
+    matchLabels:
+      app: otel-node-collector
+  template:
+    metadata:
+      labels:
+        app: otel-node-collector
+    spec:
+      serviceAccountName: otel-collector
+      # Required to access kubelet API on the node's IP
+      hostNetwork: false
+      containers:
+      - name: otel-node-collector
+        image: otelcollector:latest
+        imagePullPolicy: Never
+        args:
+        - --config=/etc/otelcol/config.yaml
+        securityContext:
+          runAsUser: 0
+        env:
+        - name: K8S_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: K8S_NODE_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.hostIP
+        ports:
+        - name: health
+          containerPort: 13134
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 300Mi
+        livenessProbe:
+          httpGet:
+            path: /
+            port: health
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /
+            port: health
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        volumeMounts:
+        - name: config
+          mountPath: /etc/otelcol
+          readOnly: true
+        - name: hostfs
+          mountPath: /hostfs
+          readOnly: true
+      tolerations:
+      - operator: Exists
+        effect: NoSchedule
+      volumes:
+      - name: config
+        configMap:
+          name: otel-node-collector-config
+      - name: hostfs
+        hostPath:
+          path: /

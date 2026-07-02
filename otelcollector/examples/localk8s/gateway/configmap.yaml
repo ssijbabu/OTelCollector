@@ -1,0 +1,130 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-gateway-config
+  namespace: otel-gateway
+data:
+  config.yaml: |
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+
+    receivers:
+      kafka:
+        brokers: ["kafka-client.kafka.svc.cluster.local:9092"]
+        group_id: otel-gateway
+        logs:
+          topics: ["otel-logs"]
+          encoding: otlp_json
+        metrics:
+          topics: ["otel-metrics"]
+          encoding: otlp_json
+        traces:
+          topics: ["otel-traces"]
+          encoding: otlp_json
+
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 400
+        spike_limit_mib: 100
+      # elasticapmprocessor enriches OTel spans with APM fields:
+      # transaction.type, transaction.name, transaction.root,
+      # event.outcome, agent.name, span.type, span.subtype, etc.
+      elasticapm/enrich: {}
+      batch:
+        send_batch_size: 512
+        send_batch_max_size: 1024
+        timeout: 5s
+      # Sets elastic.mapping.mode=ecs on the scope of APM connector metrics so the
+      # ES exporter skips the .otel suffix and routes to metrics-apm.* streams.
+      # Note: mapping.mode exporter config is deprecated in v0.152.0; the scope
+      # attribute is the correct mechanism for controlling per-stream mapping mode.
+      transform/apm_ecs_mode:
+        metric_statements:
+          - context: scope
+            statements:
+              - 'set(attributes["elastic.mapping.mode"], "ecs")'
+      # Sets elastic.mapping.mode=ecs on infrastructure metrics so @timestamp is
+      # stored as ISO string and host.name is promoted to top level — required for
+      # Kibana Infrastructure inventory and host detail pages to function.
+      transform/infra_ecs_mode:
+        metric_statements:
+          - context: scope
+            statements:
+              - 'set(attributes["elastic.mapping.mode"], "ecs")'
+
+    connectors:
+      # elasticapmconnector aggregates enriched spans into APM metrics.
+      elasticapm/metrics:
+        aggregation:
+          statements:
+            - 'set(attributes["data_stream.dataset"], Concat(["apm.", attributes["data_stream.dataset"]], ""))'
+
+      # Routes infra receiver metrics to ECS-mode pipeline, app metrics to OTel-mode pipeline.
+      # Infra metrics (hostmetrics, kubeletstats, k8sclusterreceiver) have no service.name.
+      # App metrics (otel-demo services) always set service.name as a resource attribute.
+      # Default = infra (ECS mode); explicit match on service.name = app (OTel mode).
+      routing/metrics:
+        default_pipelines: [metrics/infra]
+        error_mode: ignore
+        table:
+          - statement: 'route() where attributes["service.name"] != nil'
+            pipelines: [metrics/app]
+
+    exporters:
+      # OTel mapping mode for app telemetry (traces, app metrics, logs).
+      # Infrastructure metrics use this exporter too but with the elastic.mapping.mode
+      # scope attribute set to "ecs" by transform/infra_ecs_mode — the exporter
+      # reads the scope attribute to determine per-stream mode (mapping.mode config
+      # is deprecated and ignored in v0.152.0).
+      elasticsearch:
+        endpoints: ["http://elasticsearch.elastic.svc.cluster.local:9200"]
+        user: elastic
+        password: elastic123
+        mapping:
+          mode: otel
+      debug:
+        verbosity: basic
+
+    service:
+      extensions: [health_check]
+      telemetry:
+        logs:
+          level: info
+      pipelines:
+        logs:
+          receivers: [kafka]
+          processors: [memory_limiter, batch]
+          exporters: [elasticsearch, debug]
+
+        # Receives all metrics from Kafka, routes to app or infra sub-pipeline
+        metrics:
+          receivers: [kafka]
+          processors: [memory_limiter, batch]
+          exporters: [routing/metrics]
+
+        # App metrics (OTel demo services, etc.) — OTel mapping mode
+        metrics/app:
+          receivers: [routing/metrics]
+          processors: []
+          exporters: [elasticsearch, debug]
+
+        # Infrastructure metrics (hostmetrics, kubeletstats, k8sclusterreceiver).
+        # transform/infra_ecs_mode sets elastic.mapping.mode=ecs on each scope so
+        # the ES exporter writes ISO @timestamp and promotes host.name → ECS fields,
+        # enabling Kibana Infrastructure inventory and host detail pages.
+        metrics/infra:
+          receivers: [routing/metrics]
+          processors: [transform/infra_ecs_mode]
+          exporters: [elasticsearch, debug]
+
+        traces:
+          receivers: [kafka]
+          processors: [memory_limiter, elasticapm/enrich, batch]
+          exporters: [elasticsearch, elasticapm/metrics, debug]
+
+        metrics/apm:
+          receivers: [elasticapm/metrics]
+          processors: [memory_limiter, transform/apm_ecs_mode, batch]
+          exporters: [elasticsearch, debug]

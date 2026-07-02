@@ -1,0 +1,34 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kibana-system-setup
+  namespace: elastic
+spec:
+  ttlSecondsAfterFinished: 120
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: setup
+        image: curlimages/curl:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          echo "Waiting for Elasticsearch..."
+          until curl -sf -u elastic:elastic123 http://elasticsearch.elastic.svc.cluster.local:9200/_cluster/health; do
+            sleep 5
+          done
+          echo "Setting kibana_system password..."
+          curl -sf -u elastic:elastic123 \
+            -X POST "http://elasticsearch.elastic.svc.cluster.local:9200/_security/user/kibana_system/_password" \
+            -H "Content-Type: application/json" \
+            -d '{"password":"kibana123"}'
+          echo "Done."
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 50m
+            memory: 32Mi

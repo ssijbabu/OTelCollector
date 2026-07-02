@@ -1,0 +1,378 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logstash-pipeline
+  namespace: logstash
+data:
+  pipeline.conf: |
+    # Logstash pipeline for OTLP JSON messages from Azure Event Hubs via Kafka.
+    #
+    # Prerequisites:
+    #   - Logstash >= 8.x with the logstash-filter-ruby and logstash-input-kafka plugins
+    #   - Environment variables:
+    #       EVENTHUB_NAMESPACE         e.g. oteltest-ssijbabu
+    #       EVENTHUB_CONNECTION_STRING full SAS connection string for the namespace
+    #       ELASTICSEARCH_HOSTS        e.g. https://my-es-cluster:9200
+    #       ELASTICSEARCH_USER
+    #       ELASTICSEARCH_PASSWORD
+    #
+    # Message format: OTLP JSON (one batch per Kafka message).
+    # Each batch is exploded into individual Elasticsearch documents:
+    #   logs    -> index otel-logs-<YYYY.MM.dd>
+    #   metrics -> index otel-metrics-<YYYY.MM.dd>
+    #   traces  -> index otel-traces-<YYYY.MM.dd>
+
+    input {
+      kafka {
+        bootstrap_servers => "${EVENTHUB_NAMESPACE}.servicebus.windows.net:9093"
+
+        # Read all three signal topics; one thread per topic preserves ordering.
+        topics           => ["otel-logs", "otel-metrics", "otel-traces"]
+        group_id         => "logstash-otel-consumer"
+        consumer_threads => 3
+
+        # Messages are OTLP JSON -- parse them directly on ingest.
+        codec => "json"
+
+        # Attach Kafka metadata so filters can identify the originating topic.
+        decorate_events => "basic"
+
+        # Auth: SASL/PLAIN over TLS (Event Hubs Kafka endpoint).
+        # Username must be the literal string "$ConnectionString".
+        security_protocol => "SASL_SSL"
+        sasl_mechanism    => "PLAIN"
+        sasl_jaas_config  => 'org.apache.kafka.common.security.plain.PlainLoginModule required username="$ConnectionString" password="${EVENTHUB_CONNECTION_STRING}";'
+
+        auto_offset_reset => "earliest"
+      }
+    }
+
+    filter {
+      # -----------------------------------------------------------------------
+      # Tag each event with the signal type derived from the Kafka topic name.
+      # -----------------------------------------------------------------------
+      if [@metadata][kafka][topic] == "otel-logs" {
+        mutate { add_field => { "[@metadata][otel_signal]" => "logs" } }
+      } else if [@metadata][kafka][topic] == "otel-metrics" {
+        mutate { add_field => { "[@metadata][otel_signal]" => "metrics" } }
+      } else if [@metadata][kafka][topic] == "otel-traces" {
+        mutate { add_field => { "[@metadata][otel_signal]" => "traces" } }
+      }
+
+      # -----------------------------------------------------------------------
+      # LOGS: explode resourceLogs -> scopeLogs -> logRecords
+      # -----------------------------------------------------------------------
+      if [@metadata][otel_signal] == "logs" {
+        # After each split, the named field holds one element instead of an array.
+        split { field => "resourceLogs" }
+        split { field => "[resourceLogs][scopeLogs]" }
+        split { field => "[resourceLogs][scopeLogs][logRecords]" }
+
+        # Flatten and promote to top-level fields.
+        ruby {
+          init => '
+            def otlp_attrs(arr)
+              return {} unless arr.is_a?(Array)
+              arr.each_with_object({}) do |kv, h|
+                h[kv["key"]] = otlp_val(kv["value"])
+              end
+            end
+
+            def otlp_val(v)
+              return nil if v.nil?
+              return v["stringValue"]          if v.key?("stringValue")
+              return v["intValue"].to_i        if v.key?("intValue")
+              return v["doubleValue"]          if v.key?("doubleValue")
+              return v["boolValue"]            if v.key?("boolValue")
+              return v["bytesValue"]           if v.key?("bytesValue")
+              if v["arrayValue"]
+                return (v.dig("arrayValue","values") || []).map { |i| otlp_val(i) }
+              end
+              if v["kvlistValue"]
+                return (v.dig("kvlistValue","values") || []).each_with_object({}) { |kv,h| h[kv["key"]] = otlp_val(kv["value"]) }
+              end
+              v
+            end
+
+            def ns_to_iso(ns_str)
+              return nil if ns_str.nil?
+              ns = ns_str.to_i
+              return nil if ns == 0
+              Time.at(ns / 1_000_000_000, (ns % 1_000_000_000) / 1000.0).utc.iso8601(6)
+            end
+          '
+          code => '
+            rl  = event.get("resourceLogs")             || {}
+            sl  = event.get("[resourceLogs][scopeLogs]") || {}
+            rec = event.get("[resourceLogs][scopeLogs][logRecords]") || {}
+
+            event.set("resource",   otlp_attrs(rl.dig("resource","attributes")))
+            event.set("schema_url", rl["schemaUrl"])
+            event.set("scope",      { "name"       => sl.dig("scope","name"),
+                                      "version"    => sl.dig("scope","version"),
+                                      "attributes" => otlp_attrs(sl.dig("scope","attributes")) })
+
+            body = rec["body"]
+            event.set("log", {
+              "body"            => body.is_a?(Hash) ? otlp_val(body) : body,
+              "severity_text"   => rec["severityText"],
+              "severity_number" => rec["severityNumber"],
+              "trace_id"        => rec["traceId"],
+              "span_id"         => rec["spanId"],
+              "flags"           => rec["flags"],
+              "attributes"      => otlp_attrs(rec["attributes"]),
+            })
+
+            ts = ns_to_iso(rec["timeUnixNano"] || rec["observedTimeUnixNano"])
+            event.set("@timestamp", LogStash::Timestamp.new(Time.parse(ts))) if ts
+            obs = ns_to_iso(rec["observedTimeUnixNano"])
+            event.set("observed_time", obs) if obs
+
+            event.remove("resourceLogs")
+          '
+        }
+      }
+
+      # -----------------------------------------------------------------------
+      # METRICS: explode resourceMetrics -> scopeMetrics -> metrics -> dataPoints
+      # -----------------------------------------------------------------------
+      else if [@metadata][otel_signal] == "metrics" {
+        split { field => "resourceMetrics" }
+        split { field => "[resourceMetrics][scopeMetrics]" }
+        split { field => "[resourceMetrics][scopeMetrics][metrics]" }
+
+        ruby {
+          init => '
+            def otlp_attrs(arr)
+              return {} unless arr.is_a?(Array)
+              arr.each_with_object({}) do |kv, h|
+                h[kv["key"]] = otlp_val(kv["value"])
+              end
+            end
+
+            def otlp_val(v)
+              return nil if v.nil?
+              return v["stringValue"]          if v.key?("stringValue")
+              return v["intValue"].to_i        if v.key?("intValue")
+              return v["doubleValue"]          if v.key?("doubleValue")
+              return v["boolValue"]            if v.key?("boolValue")
+              return v["bytesValue"]           if v.key?("bytesValue")
+              if v["arrayValue"]
+                return (v.dig("arrayValue","values") || []).map { |i| otlp_val(i) }
+              end
+              if v["kvlistValue"]
+                return (v.dig("kvlistValue","values") || []).each_with_object({}) { |kv,h| h[kv["key"]] = otlp_val(kv["value"]) }
+              end
+              v
+            end
+
+            def ns_to_iso(ns_str)
+              return nil if ns_str.nil?
+              ns = ns_str.to_i
+              return nil if ns == 0
+              Time.at(ns / 1_000_000_000, (ns % 1_000_000_000) / 1000.0).utc.iso8601(6)
+            end
+          '
+          code => '
+            rm  = event.get("resourceMetrics")                 || {}
+            sm  = event.get("[resourceMetrics][scopeMetrics]") || {}
+            met = event.get("[resourceMetrics][scopeMetrics][metrics]") || {}
+
+            resource_attrs = otlp_attrs(rm.dig("resource","attributes"))
+            schema_url     = rm["schemaUrl"]
+            scope          = { "name"       => sm.dig("scope","name"),
+                               "version"    => sm.dig("scope","version"),
+                               "attributes" => otlp_attrs(sm.dig("scope","attributes")) }
+
+            metric_type = ["gauge","sum","histogram","summary","exponentialHistogram"].find { |t| met[t] }
+            data_points = met.dig(metric_type, "dataPoints") || []
+
+            event.set("resource",           resource_attrs)
+            event.set("schema_url",         schema_url)
+            event.set("scope",              scope)
+            event.set("metric_name",        met["name"])
+            event.set("metric_description", met["description"])
+            event.set("metric_unit",        met["unit"])
+            event.set("metric_type",        metric_type)
+            event.set("data_points",        data_points)
+
+            event.remove("resourceMetrics")
+          '
+        }
+
+        # Fan out one event per data point.
+        split { field => "data_points" }
+
+        ruby {
+          init => '
+            def otlp_attrs(arr)
+              return {} unless arr.is_a?(Array)
+              arr.each_with_object({}) do |kv, h|
+                h[kv["key"]] = otlp_val(kv["value"])
+              end
+            end
+
+            def otlp_val(v)
+              return nil if v.nil?
+              return v["stringValue"]          if v.key?("stringValue")
+              return v["intValue"].to_i        if v.key?("intValue")
+              return v["doubleValue"]          if v.key?("doubleValue")
+              return v["boolValue"]            if v.key?("boolValue")
+              return v["bytesValue"]           if v.key?("bytesValue")
+              if v["arrayValue"]
+                return (v.dig("arrayValue","values") || []).map { |i| otlp_val(i) }
+              end
+              if v["kvlistValue"]
+                return (v.dig("kvlistValue","values") || []).each_with_object({}) { |kv,h| h[kv["key"]] = otlp_val(kv["value"]) }
+              end
+              v
+            end
+
+            def ns_to_iso(ns_str)
+              return nil if ns_str.nil?
+              ns = ns_str.to_i
+              return nil if ns == 0
+              Time.at(ns / 1_000_000_000, (ns % 1_000_000_000) / 1000.0).utc.iso8601(6)
+            end
+          '
+          code => '
+            dp = event.get("data_points") || {}
+
+            event.set("metric", {
+              "name"        => event.get("metric_name"),
+              "description" => event.get("metric_description"),
+              "unit"        => event.get("metric_unit"),
+              "type"        => event.get("metric_type"),
+              "value"       => dp["asDouble"] || dp["asInt"],
+              "start_time"  => ns_to_iso(dp["startTimeUnixNano"]),
+              "attributes"  => otlp_attrs(dp["attributes"]),
+              "count"       => dp["count"],
+              "sum"         => dp["sum"],
+              "min"         => dp["min"],
+              "max"         => dp["max"],
+            })
+
+            ts = ns_to_iso(dp["timeUnixNano"] || dp["startTimeUnixNano"])
+            event.set("@timestamp", LogStash::Timestamp.new(Time.parse(ts))) if ts
+
+            ["metric_name","metric_description","metric_unit","metric_type","data_points"].each do |f|
+              event.remove(f)
+            end
+          '
+        }
+      }
+
+      # -----------------------------------------------------------------------
+      # TRACES: explode resourceSpans -> scopeSpans -> spans
+      # -----------------------------------------------------------------------
+      else if [@metadata][otel_signal] == "traces" {
+        split { field => "resourceSpans" }
+        split { field => "[resourceSpans][scopeSpans]" }
+        split { field => "[resourceSpans][scopeSpans][spans]" }
+
+        ruby {
+          init => '
+            def otlp_attrs(arr)
+              return {} unless arr.is_a?(Array)
+              arr.each_with_object({}) do |kv, h|
+                h[kv["key"]] = otlp_val(kv["value"])
+              end
+            end
+
+            def otlp_val(v)
+              return nil if v.nil?
+              return v["stringValue"]          if v.key?("stringValue")
+              return v["intValue"].to_i        if v.key?("intValue")
+              return v["doubleValue"]          if v.key?("doubleValue")
+              return v["boolValue"]            if v.key?("boolValue")
+              return v["bytesValue"]           if v.key?("bytesValue")
+              if v["arrayValue"]
+                return (v.dig("arrayValue","values") || []).map { |i| otlp_val(i) }
+              end
+              if v["kvlistValue"]
+                return (v.dig("kvlistValue","values") || []).each_with_object({}) { |kv,h| h[kv["key"]] = otlp_val(kv["value"]) }
+              end
+              v
+            end
+
+            def ns_to_iso(ns_str)
+              return nil if ns_str.nil?
+              ns = ns_str.to_i
+              return nil if ns == 0
+              Time.at(ns / 1_000_000_000, (ns % 1_000_000_000) / 1000.0).utc.iso8601(6)
+            end
+          '
+          code => '
+            rs   = event.get("resourceSpans")               || {}
+            ss   = event.get("[resourceSpans][scopeSpans]")  || {}
+            span = event.get("[resourceSpans][scopeSpans][spans]") || {}
+
+            event.set("resource",   otlp_attrs(rs.dig("resource","attributes")))
+            event.set("schema_url", rs["schemaUrl"])
+            event.set("scope",      { "name"       => ss.dig("scope","name"),
+                                      "version"    => ss.dig("scope","version"),
+                                      "attributes" => otlp_attrs(ss.dig("scope","attributes")) })
+
+            start_ns = span["startTimeUnixNano"]
+            end_ns   = span["endTimeUnixNano"]
+            ts = ns_to_iso(start_ns)
+            event.set("@timestamp", LogStash::Timestamp.new(Time.parse(ts))) if ts
+            event.set("end_time", ns_to_iso(end_ns)) if end_ns
+            if start_ns && end_ns
+              event.set("duration_ms", (end_ns.to_i - start_ns.to_i) / 1_000_000.0)
+            end
+
+            event.set("span", {
+              "trace_id"       => span["traceId"],
+              "span_id"        => span["spanId"],
+              "parent_span_id" => span["parentSpanId"],
+              "name"           => span["name"],
+              "kind"           => span["kind"],
+              "status_code"    => span.dig("status","code"),
+              "status_message" => span.dig("status","message"),
+              "attributes"     => otlp_attrs(span["attributes"]),
+              "events"         => span["events"],
+              "links"          => span["links"],
+            })
+
+            event.remove("resourceSpans")
+          '
+        }
+      }
+
+      # Add the signal type to every document for cross-index queries.
+      mutate {
+        add_field => { "otel_signal" => "%{[@metadata][otel_signal]}" }
+      }
+    }
+
+    output {
+      # Uncomment to send to Elasticsearch once the pipeline is verified.
+      # if [@metadata][otel_signal] == "logs" {
+      #   elasticsearch {
+      #     hosts    => ["${ELASTICSEARCH_HOSTS}"]
+      #     user     => "${ELASTICSEARCH_USER}"]
+      #     password => "${ELASTICSEARCH_PASSWORD}"
+      #     index    => "otel-logs-%{+YYYY.MM.dd}"
+      #     ssl_verification_mode => "full"
+      #   }
+      # } else if [@metadata][otel_signal] == "metrics" {
+      #   elasticsearch {
+      #     hosts    => ["${ELASTICSEARCH_HOSTS}"]
+      #     user     => "${ELASTICSEARCH_USER}"
+      #     password => "${ELASTICSEARCH_PASSWORD}"
+      #     index    => "otel-metrics-%{+YYYY.MM.dd}"
+      #     ssl_verification_mode => "full"
+      #   }
+      # } else if [@metadata][otel_signal] == "traces" {
+      #   elasticsearch {
+      #     hosts    => ["${ELASTICSEARCH_HOSTS}"]
+      #     user     => "${ELASTICSEARCH_USER}"
+      #     password => "${ELASTICSEARCH_PASSWORD}"
+      #     index    => "otel-traces-%{+YYYY.MM.dd}"
+      #     ssl_verification_mode => "full"
+      #   }
+      # }
+
+      stdout { codec => rubydebug }
+    }

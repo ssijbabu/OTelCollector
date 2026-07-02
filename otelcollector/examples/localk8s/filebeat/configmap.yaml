@@ -1,0 +1,50 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-config
+  namespace: filebeat
+data:
+  filebeat.yml: |
+    filebeat.inputs:
+    - type: container
+      paths:
+        - /var/log/containers/*.log
+      processors:
+        - add_kubernetes_metadata:
+            host: ${NODE_NAME}
+            matchers:
+            - logs_path:
+                logs_path: "/var/log/containers/"
+
+    processors:
+      - add_cloud_metadata: ~
+      - add_host_metadata: ~
+      # Map kubernetes.container.name → service.name so Kibana APM
+      # can correlate these logs with the matching APM service.
+      - copy_fields:
+          fields:
+            - from: kubernetes.container.name
+              to: service.name
+          fail_on_error: false
+          ignore_missing: true
+      # Also surface the namespace as service.environment for filtering.
+      - copy_fields:
+          fields:
+            - from: kubernetes.namespace
+              to: service.environment
+          fail_on_error: false
+          ignore_missing: true
+
+    output.elasticsearch:
+      hosts: ["http://elasticsearch.elastic.svc.cluster.local:9200"]
+      username: "elastic"
+      password: "elastic123"
+      index: "logs-kubernetes.container_logs-default"
+
+    # Disable built-in template/ILM so the index name override is respected.
+    # ES 8.x has a built-in logs-*-* template that handles mapping automatically.
+    setup.template.enabled: false
+    setup.ilm.enabled: false
+
+    logging.level: info
+    logging.to_stderr: true

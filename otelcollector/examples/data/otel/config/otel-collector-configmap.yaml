@@ -1,0 +1,118 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: otel-collector
+data:
+  config.yaml: |
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+      file_storage:
+        directory: /var/lib/otelcol/file_storage
+
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+      filelog:
+        include:
+          - /var/log/pods/elastiflix_*/*/*.log
+        include_file_path: true
+        include_file_name: false
+        storage: file_storage
+        operators:
+          # Docker JSON log format: {"log":"...","stream":"stdout","time":"..."}
+          - type: json_parser
+            id: parse-docker
+            timestamp:
+              parse_from: attributes.time
+              layout_type: gotime
+              layout: '2006-01-02T15:04:05.999999999Z'
+          - type: move
+            id: move-log-body
+            from: attributes.log
+            to: body
+          - type: remove
+            id: remove-stream
+            field: attributes.stream
+          - type: remove
+            id: remove-time
+            field: attributes.time
+          # Parse ECS/pino JSON body from the app
+          - type: json_parser
+            id: parse-app-json
+            if: 'body matches "^\\{"'
+            on_error: send
+          # Extract k8s metadata from file path
+          # Format: /var/log/pods/<namespace>_<pod>_<uid>/<container>/<n>.log
+          - type: regex_parser
+            id: parse-filepath
+            parse_from: attributes["log.file.path"]
+            regex: '^/var/log/pods/(?P<k8s_namespace>[^_]+)_(?P<k8s_pod_name>[^_]+)_[^/]+/(?P<k8s_container_name>[^/]+)/'
+            on_error: send
+          - type: move
+            id: move-ns
+            from: attributes.k8s_namespace
+            to: resource["k8s.namespace.name"]
+          - type: move
+            id: move-pod
+            from: attributes.k8s_pod_name
+            to: resource["k8s.pod.name"]
+          - type: move
+            id: move-container
+            from: attributes.k8s_container_name
+            to: resource["k8s.container.name"]
+
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 200
+        spike_limit_mib: 50
+      batch:
+        send_batch_size: 256
+        timeout: 2s
+      # Copy k8s.container.name → service.name for Kibana APM log correlation
+      transform/set-service-name:
+        log_statements:
+          - context: resource
+            statements:
+              - 'set(attributes["service.name"], attributes["k8s.container.name"]) where attributes["service.name"] == nil'
+
+    exporters:
+      kafka:
+        brokers: ["kafka-client.kafka.svc.cluster.local:9092"]
+        protocol_version: "3.0.0"
+        logs:
+          topic: otel-logs
+          encoding: otlp_json
+        metrics:
+          topic: otel-metrics
+          encoding: otlp_json
+        traces:
+          topic: otel-traces
+          encoding: otlp_json
+      debug:
+        verbosity: basic
+
+    service:
+      extensions: [health_check, file_storage]
+      telemetry:
+        logs:
+          level: info
+      pipelines:
+        logs:
+          receivers: [otlp, filelog]
+          processors: [memory_limiter, transform/set-service-name, batch]
+          exporters: [kafka, debug]
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [kafka, debug]
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [kafka, debug]

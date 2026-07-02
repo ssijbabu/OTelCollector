@@ -1,0 +1,36 @@
+# Helm values for EDOT kube-stack (opentelemetry-kube-stack chart 0.3.3).
+#
+# Install:
+#   helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts
+#   kubectl create namespace opentelemetry-operator-system
+#   kubectl apply -f secret.yaml
+#
+#   # Chart 0.3.3 produces null arrays rejected by the admission webhook.
+#   # Render to manifests, null-fix, then apply:
+#   helm template opentelemetry-kube-stack open-telemetry/opentelemetry-kube-stack \
+#     --namespace opentelemetry-operator-system \
+#     --version 0.3.3 \
+#     --values values.yaml \
+#     > rendered.yaml
+#   python3 fix-nulls.py rendered.yaml | kubectl apply -f -
+#
+#   # After daemon pods start, apply the Docker Desktop patch (see docker-desktop-patch.sh).
+
+defaultApplicationNamespace: "elastiflix"
+defaultCRDManagement: "operator"
+
+collectors:
+  daemon:
+    enabled: true
+    # DaemonSet — runs on every node. Receives OTLP from apps and collects
+    # host/kubelet metrics, then forwards everything to the gateway.
+  gateway:
+    enabled: true
+    # Deployment — receives from daemon. Runs elastictrace + signaltometrics
+    # to enrich spans and produce APM rollup metrics, then ships to ES.
+  clusterStats:
+    enabled: true
+    # Deployment — scrapes k8s_cluster and k8sobjects, forwards to gateway.
+
+# Credentials are read from the elastic-secret-otel Secret at runtime.
+# The gateway exporters reference ${env:ELASTIC_ENDPOINT} and ${env:ELASTIC_API_KEY}.

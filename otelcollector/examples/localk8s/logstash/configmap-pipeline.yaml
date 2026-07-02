@@ -1,0 +1,367 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logstash-pipeline
+  namespace: logstash
+data:
+  pipeline.conf: |
+    # Local pipeline — reads OTLP JSON from in-cluster Kafka (no auth).
+    input {
+      kafka {
+        bootstrap_servers => "kafka-client.kafka.svc.cluster.local:9092"
+        topics            => ["otel-logs", "otel-metrics", "otel-traces"]
+        group_id          => "logstash-otel-consumer"
+        consumer_threads  => 3
+        codec             => "json"
+        decorate_events   => "basic"
+        auto_offset_reset => "earliest"
+      }
+    }
+
+    filter {
+      if [@metadata][kafka][topic] == "otel-logs" {
+        mutate { add_field => { "[@metadata][otel_signal]" => "logs" } }
+      } else if [@metadata][kafka][topic] == "otel-metrics" {
+        mutate { add_field => { "[@metadata][otel_signal]" => "metrics" } }
+      } else if [@metadata][kafka][topic] == "otel-traces" {
+        mutate { add_field => { "[@metadata][otel_signal]" => "traces" } }
+      }
+
+      if [@metadata][otel_signal] == "logs" {
+        split { field => "resourceLogs" }
+        split { field => "[resourceLogs][scopeLogs]" }
+        split { field => "[resourceLogs][scopeLogs][logRecords]" }
+
+        ruby {
+          init => '
+            def otlp_attrs(arr)
+              return {} unless arr.is_a?(Array)
+              arr.each_with_object({}) { |kv,h| h[kv["key"]] = otlp_val(kv["value"]) }
+            end
+            def otlp_val(v)
+              return nil if v.nil?
+              return v["stringValue"]   if v.key?("stringValue")
+              return v["intValue"].to_i if v.key?("intValue")
+              return v["doubleValue"]   if v.key?("doubleValue")
+              return v["boolValue"]     if v.key?("boolValue")
+              return v["bytesValue"]    if v.key?("bytesValue")
+              if v["arrayValue"]
+                return (v.dig("arrayValue","values") || []).map { |i| otlp_val(i) }
+              end
+              if v["kvlistValue"]
+                return (v.dig("kvlistValue","values") || []).each_with_object({}) { |kv,h| h[kv["key"]] = otlp_val(kv["value"]) }
+              end
+              v
+            end
+            def ns_to_iso(ns_str)
+              return nil if ns_str.nil?
+              ns = ns_str.to_i
+              return nil if ns == 0
+              Time.at(ns / 1_000_000_000, (ns % 1_000_000_000) / 1000.0).utc.iso8601(6)
+            end
+          '
+          code => '
+            rl  = event.get("resourceLogs")                         || {}
+            sl  = event.get("[resourceLogs][scopeLogs]")             || {}
+            rec = event.get("[resourceLogs][scopeLogs][logRecords]") || {}
+            event.set("resource",   otlp_attrs(rl.dig("resource","attributes")))
+            event.set("schema_url", rl["schemaUrl"])
+            event.set("scope",      { "name" => sl.dig("scope","name") })
+            body = rec["body"]
+            event.set("log", {
+              "body"            => body.is_a?(Hash) ? otlp_val(body) : body,
+              "severity_text"   => rec["severityText"],
+              "severity_number" => rec["severityNumber"],
+              "trace_id"        => rec["traceId"],
+              "span_id"         => rec["spanId"],
+              "attributes"      => otlp_attrs(rec["attributes"]),
+            })
+            ts = ns_to_iso(rec["timeUnixNano"] || rec["observedTimeUnixNano"])
+            event.set("@timestamp", LogStash::Timestamp.new(Time.parse(ts))) if ts
+            body_val = body.is_a?(Hash) ? otlp_val(body) : body
+            event.set("message", body_val.to_s)
+            svc = event.get("resource") || {}
+            event.set("[service][name]", svc["service.name"]) if svc["service.name"]
+            sdk_lang = svc["telemetry.sdk.language"]
+            event.set("[agent][name]", sdk_lang ? "opentelemetry/#{sdk_lang}" : "opentelemetry")
+            event.remove("resourceLogs")
+          '
+        }
+      }
+
+      else if [@metadata][otel_signal] == "metrics" {
+        split { field => "resourceMetrics" }
+        split { field => "[resourceMetrics][scopeMetrics]" }
+        split { field => "[resourceMetrics][scopeMetrics][metrics]" }
+
+        ruby {
+          init => '
+            def otlp_attrs(arr)
+              return {} unless arr.is_a?(Array)
+              arr.each_with_object({}) { |kv,h| h[kv["key"]] = otlp_val(kv["value"]) }
+            end
+            def otlp_val(v)
+              return nil if v.nil?
+              return v["stringValue"]   if v.key?("stringValue")
+              return v["intValue"].to_i if v.key?("intValue")
+              return v["doubleValue"]   if v.key?("doubleValue")
+              return v["boolValue"]     if v.key?("boolValue")
+              return v["bytesValue"]    if v.key?("bytesValue")
+              if v["arrayValue"]
+                return (v.dig("arrayValue","values") || []).map { |i| otlp_val(i) }
+              end
+              if v["kvlistValue"]
+                return (v.dig("kvlistValue","values") || []).each_with_object({}) { |kv,h| h[kv["key"]] = otlp_val(kv["value"]) }
+              end
+              v
+            end
+            def ns_to_iso(ns_str)
+              return nil if ns_str.nil?
+              ns = ns_str.to_i
+              return nil if ns == 0
+              Time.at(ns / 1_000_000_000, (ns % 1_000_000_000) / 1000.0).utc.iso8601(6)
+            end
+          '
+          code => '
+            rm  = event.get("resourceMetrics")                         || {}
+            sm  = event.get("[resourceMetrics][scopeMetrics]")          || {}
+            met = event.get("[resourceMetrics][scopeMetrics][metrics]") || {}
+            metric_type = ["gauge","sum","histogram","summary","exponentialHistogram"].find { |t| met[t] }
+            event.set("resource",    otlp_attrs(rm.dig("resource","attributes")))
+            event.set("schema_url",  rm["schemaUrl"])
+            event.set("scope",       { "name" => sm.dig("scope","name") })
+            event.set("metric_name", met["name"])
+            event.set("metric_unit", met["unit"])
+            event.set("metric_type", metric_type)
+            event.set("data_points", met.dig(metric_type, "dataPoints") || [])
+            event.remove("resourceMetrics")
+          '
+        }
+
+        split { field => "data_points" }
+
+        ruby {
+          init => '
+            def otlp_attrs(arr)
+              return {} unless arr.is_a?(Array)
+              arr.each_with_object({}) { |kv,h| h[kv["key"]] = otlp_val(kv["value"]) }
+            end
+            def otlp_val(v)
+              return nil if v.nil?
+              return v["stringValue"]   if v.key?("stringValue")
+              return v["intValue"].to_i if v.key?("intValue")
+              return v["doubleValue"]   if v.key?("doubleValue")
+              return v["boolValue"]     if v.key?("boolValue")
+              return v["bytesValue"]    if v.key?("bytesValue")
+              if v["arrayValue"]
+                return (v.dig("arrayValue","values") || []).map { |i| otlp_val(i) }
+              end
+              if v["kvlistValue"]
+                return (v.dig("kvlistValue","values") || []).each_with_object({}) { |kv,h| h[kv["key"]] = otlp_val(kv["value"]) }
+              end
+              v
+            end
+            def ns_to_iso(ns_str)
+              return nil if ns_str.nil?
+              ns = ns_str.to_i
+              return nil if ns == 0
+              Time.at(ns / 1_000_000_000, (ns % 1_000_000_000) / 1000.0).utc.iso8601(6)
+            end
+          '
+          code => '
+            dp = event.get("data_points") || {}
+            event.set("metric", {
+              "name"       => event.get("metric_name"),
+              "unit"       => event.get("metric_unit"),
+              "type"       => event.get("metric_type"),
+              "value"      => dp["asDouble"] || dp["asInt"],
+              "start_time" => ns_to_iso(dp["startTimeUnixNano"]),
+              "attributes" => otlp_attrs(dp["attributes"]),
+              "count"      => dp["count"],
+              "sum"        => dp["sum"],
+            })
+            ts = ns_to_iso(dp["timeUnixNano"] || dp["startTimeUnixNano"])
+            event.set("@timestamp", LogStash::Timestamp.new(Time.parse(ts))) if ts
+            ["metric_name","metric_unit","metric_type","data_points"].each { |f| event.remove(f) }
+          '
+        }
+      }
+
+      else if [@metadata][otel_signal] == "traces" {
+        split { field => "resourceSpans" }
+        split { field => "[resourceSpans][scopeSpans]" }
+        split { field => "[resourceSpans][scopeSpans][spans]" }
+
+        ruby {
+          init => '
+            def otlp_attrs(arr)
+              return {} unless arr.is_a?(Array)
+              arr.each_with_object({}) { |kv,h| h[kv["key"]] = otlp_val(kv["value"]) }
+            end
+            def otlp_val(v)
+              return nil if v.nil?
+              return v["stringValue"]   if v.key?("stringValue")
+              return v["intValue"].to_i if v.key?("intValue")
+              return v["doubleValue"]   if v.key?("doubleValue")
+              return v["boolValue"]     if v.key?("boolValue")
+              return v["bytesValue"]    if v.key?("bytesValue")
+              if v["arrayValue"]
+                return (v.dig("arrayValue","values") || []).map { |i| otlp_val(i) }
+              end
+              if v["kvlistValue"]
+                return (v.dig("kvlistValue","values") || []).each_with_object({}) { |kv,h| h[kv["key"]] = otlp_val(kv["value"]) }
+              end
+              v
+            end
+            def ns_to_iso(ns_str)
+              return nil if ns_str.nil?
+              ns = ns_str.to_i
+              return nil if ns == 0
+              Time.at(ns / 1_000_000_000, (ns % 1_000_000_000) / 1000.0).utc.iso8601(6)
+            end
+          '
+          code => '
+            rs   = event.get("resourceSpans")                    || {}
+            ss   = event.get("[resourceSpans][scopeSpans]")       || {}
+            span = event.get("[resourceSpans][scopeSpans][spans]") || {}
+
+            event.set("resource",   otlp_attrs(rs.dig("resource","attributes")))
+            event.set("schema_url", rs["schemaUrl"])
+            event.set("scope",      { "name" => ss.dig("scope","name") })
+
+            start_ns = span["startTimeUnixNano"]
+            end_ns   = span["endTimeUnixNano"]
+            ts = ns_to_iso(start_ns)
+            event.set("@timestamp", LogStash::Timestamp.new(Time.parse(ts))) if ts
+            event.set("end_time",   ns_to_iso(end_ns)) if end_ns
+            dur_us = (start_ns && end_ns) ? ((end_ns.to_i - start_ns.to_i) / 1_000.0).round : 0
+            event.set("duration_ms", dur_us / 1000.0)
+            event.set("[timestamp][us]", start_ns ? (start_ns.to_i / 1000) : 0)
+
+            attrs = otlp_attrs(span["attributes"])
+            http_status = attrs["http.status_code"]&.to_i
+            span_status = span.dig("status", "code").to_i  # 0=UNSET 1=OK 2=ERROR
+
+            event.set("span", {
+              "trace_id"       => span["traceId"],
+              "span_id"        => span["spanId"],
+              "parent_span_id" => span["parentSpanId"],
+              "name"           => span["name"],
+              "kind"           => span["kind"],
+              "status_code"    => span.dig("status","code"),
+              "attributes"     => attrs,
+            })
+
+            event.set("message", span["name"] || "")
+            svc = event.get("resource") || {}
+            event.set("[service][name]",    svc["service.name"])    if svc["service.name"]
+            event.set("[service][version]", svc["service.version"]) if svc["service.version"]
+            event.set("[trace][id]",        span["traceId"])        if span["traceId"]
+            sdk_lang = svc["telemetry.sdk.language"]
+            event.set("[agent][name]", sdk_lang ? "opentelemetry/#{sdk_lang}" : "opentelemetry")
+
+            # event.outcome: failure if OTel ERROR status or HTTP >= 400 (server spans treat 4xx as failures)
+            if span_status == 2 || (http_status && http_status >= 400)
+              event.set("[event][outcome]", "failure")
+            else
+              event.set("[event][outcome]", "success")
+            end
+
+            is_root = span["parentSpanId"].nil? || span["parentSpanId"].to_s.empty?
+            span_name = span["name"] || ""
+            if is_root
+              event.set("[processor][event]", "transaction")
+              tx_type = span_name.match?(/^(GET|POST|PUT|DELETE|PATCH|HEAD)\s/) ? "request" : "custom"
+              event.set("[transaction][id]",          span["spanId"])
+              event.set("[transaction][name]",        span_name)
+              event.set("[transaction][type]",        tx_type)
+              event.set("[transaction][duration][us]", dur_us)
+              event.set("[transaction][result]",      http_status ? "HTTP #{http_status.to_s[0]}xx" : (span_status == 2 ? "failure" : "success"))
+              event.set("[transaction][sampled]",    true)
+              event.set("[http][response][status_code]", http_status) if http_status
+              event.set("[parent][id]", span["parentSpanId"]) if span["parentSpanId"] && !span["parentSpanId"].empty?
+            else
+              event.set("[processor][event]", "span")
+              event.set("[span][id]",          span["spanId"]) if span["spanId"]
+              event.set("[span][duration][us]", dur_us)
+              event.set("[parent][id]",        span["parentSpanId"]) if span["parentSpanId"]
+              event.set("[transaction][id]",   span["parentSpanId"]) if span["parentSpanId"]
+
+              span_kind = span["kind"].to_i
+              if span_kind == 3  # CLIENT — outgoing call; wire up destination so Kibana shows the dependency
+                http_url = attrs["http.url"]
+                peer_host = attrs["net.peer.name"] || attrs["server.address"]
+                peer_port = (attrs["net.peer.port"] || attrs["server.port"])&.to_i
+                if http_url && !peer_host
+                  # parse host:port from URL
+                  m = http_url.match(%r{https?://([^/:]+)(?::(\d+))?})
+                  peer_host = m[1] if m
+                  peer_port = m[2].to_i if m && m[2]
+                end
+                if peer_host
+                  svc_label = peer_host.split(".").first
+                  resource   = peer_port && peer_port > 0 ? "#{peer_host}:#{peer_port}" : peer_host
+                  event.set("[span][type]",    "external")
+                  event.set("[span][subtype]", "http")
+                  event.set("[span][destination][service][name]",     svc_label)
+                  event.set("[span][destination][service][resource]", resource)
+                  event.set("[span][destination][service][type]",     "external")
+                else
+                  event.set("[span][type]", "external")
+                end
+              elsif span_kind == 4 || span_kind == 5  # PRODUCER / CONSUMER
+                event.set("[span][type]", "messaging")
+              else
+                event.set("[span][type]", "custom")
+              end
+            end
+
+            event.remove("resourceSpans")
+          '
+        }
+      }
+
+      mutate {
+        add_field => { "otel_signal" => "%{[@metadata][otel_signal]}" }
+        remove_field => ["[event][original]", "scope", "schema_url"]
+      }
+      if [@metadata][otel_signal] == "metrics" {
+        if [resource][service.name] {
+          mutate { copy => { "[resource][service.name]" => "[service][name]" } }
+        }
+      }
+    }
+
+    output {
+      if [otel_signal] == "logs" {
+        elasticsearch {
+          hosts                 => ["http://elasticsearch.elastic.svc.cluster.local:9200"]
+          user                  => "elastic"
+          password              => "elastic123"
+          data_stream           => true
+          data_stream_type      => "logs"
+          data_stream_dataset   => "otel"
+          data_stream_namespace => "default"
+        }
+      } else if [otel_signal] == "metrics" {
+        elasticsearch {
+          hosts                 => ["http://elasticsearch.elastic.svc.cluster.local:9200"]
+          user                  => "elastic"
+          password              => "elastic123"
+          data_stream           => true
+          data_stream_type      => "metrics"
+          data_stream_dataset   => "otel"
+          data_stream_namespace => "default"
+        }
+      } else if [otel_signal] == "traces" {
+        elasticsearch {
+          hosts                 => ["http://elasticsearch.elastic.svc.cluster.local:9200"]
+          user                  => "elastic"
+          password              => "elastic123"
+          data_stream           => true
+          data_stream_type      => "traces"
+          data_stream_dataset   => "generic.otel"
+          data_stream_namespace => "default"
+        }
+      }
+    }

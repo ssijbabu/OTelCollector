@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: load-generator
+  namespace: elastiflix
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: load-generator
+  template:
+    metadata:
+      labels:
+        app: load-generator
+    spec:
+      containers:
+      - name: load-generator
+        image: curlimages/curl:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          NODE="http://node-server.elastiflix.svc.cluster.local:3001"
+          while true; do
+            curl -sf "$NODE/api/favorites" -o /dev/null
+            sleep 1
+            curl -sf -X POST "$NODE/api/favorites" \
+              -H "Content-Type: application/json" \
+              -d "{\"id\": $((RANDOM % 100 + 1))}" -o /dev/null
+            sleep 1
+            curl -sf "$NODE/api/login" -o /dev/null
+            sleep 1
+            curl -sf "$NODE/api/favorites" -o /dev/null
+            sleep 1
+            curl -sf -X POST "$NODE/api/favorites" \
+              -H "Content-Type: application/json" \
+              -d "{\"id\": $((RANDOM % 100 + 1))}" -o /dev/null
+            sleep 2
+          done
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 50m
+            memory: 32Mi

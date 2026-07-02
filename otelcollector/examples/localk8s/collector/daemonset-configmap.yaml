@@ -1,0 +1,204 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-node-collector-config
+  namespace: otel-collector
+data:
+  config.yaml: |
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13134
+
+    receivers:
+      # Host-level CPU, memory, disk, filesystem, network, load, processes
+      hostmetrics:
+        collection_interval: 30s
+        root_path: /hostfs
+        scrapers:
+          cpu:
+            metrics:
+              system.cpu.utilization:
+                enabled: true
+              system.cpu.logical.count:
+                enabled: true
+          load:
+          memory:
+            metrics:
+              system.memory.utilization:
+                enabled: true
+          disk:
+          filesystem:
+            exclude_mount_points:
+              mount_points: [/dev, /sys, /proc, /run/credentials]
+              match_type: strict
+            exclude_fs_types:
+              fs_types: [autofs, binfmt_misc, bpf, cgroup2, configfs, debugfs, devpts,
+                         devtmpfs, fusectl, hugetlbfs, mqueue, nsfs, overlay, proc,
+                         procfs, pstore, rpc_pipefs, securityfs, selinuxfs, squashfs,
+                         sysfs, tracefs]
+              match_type: strict
+          network:
+          paging:
+          processes:
+          process:
+            mute_process_name_error: true
+            mute_process_exe_error: true
+            mute_process_io_error: true
+            mute_process_user_error: true
+            metrics:
+              process.open_file_descriptors:
+                enabled: true
+              process.threads:
+                enabled: true
+
+      # Per-pod and per-container resource usage from kubelet
+      kubeletstats:
+        collection_interval: 30s
+        auth_type: serviceAccount
+        endpoint: "https://${env:K8S_NODE_IP}:10250"
+        node: "${env:K8S_NODE_NAME}"
+        insecure_skip_verify: true
+        metric_groups: [node, pod, container]
+        extra_metadata_labels:
+          - container.id
+        metrics:
+          k8s.pod.memory.node.utilization:
+            enabled: true
+          k8s.pod.cpu.node.utilization:
+            enabled: true
+          k8s.container.cpu_limit_utilization:
+            enabled: true
+          k8s.pod.cpu_limit_utilization:
+            enabled: true
+          k8s.container.memory_limit_utilization:
+            enabled: true
+          k8s.pod.memory_limit_utilization:
+            enabled: true
+          k8s.node.uptime:
+            enabled: true
+          k8s.node.cpu.usage:
+            enabled: true
+          k8s.pod.cpu.usage:
+            enabled: true
+
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 200
+        spike_limit_mib: 50
+
+      # Detect host identity (hostname, OS, cloud provider, IPs).
+      # host.ip requires explicit opt-in; os.version and os.name are collected
+      # automatically but elasticinframetrics only maps os.type → host.os.platform,
+      # so we copy the rest via transform/host_os_metadata below.
+      resourcedetection:
+        detectors: [env, system]
+        timeout: 5s
+        override: false
+        system:
+          hostname_sources: [os]
+          resource_attributes:
+            host.ip:
+              enabled: true
+
+      # Set k8s.node.name and host.name to the actual k8s node (not the collector pod hostname).
+      # resourcedetection sets host.name = container hostname (the pod name); we override both here.
+      resource:
+        attributes:
+          - key: k8s.node.name
+            value: "${env:K8S_NODE_NAME}"
+            action: upsert
+          - key: host.name
+            value: "${env:K8S_NODE_NAME}"
+            action: upsert
+
+      batch:
+        send_batch_size: 256
+        timeout: 5s
+
+      # Sets elastic.mapping.mode=ecs on each metric scope so the ES exporter
+      # writes ISO @timestamp and promotes resource attributes (host.name etc.)
+      # to top-level ECS fields. mapping.mode exporter config is
+      # deprecated/ignored in v0.152.0; the scope attribute is the correct
+      # per-stream mechanism.
+      transform/infra_ecs_mode:
+        metric_statements:
+          - context: scope
+            statements:
+              - 'set(attributes["elastic.mapping.mode"], "ecs")'
+
+      # Converts OTel system metric names to the ECS field names Kibana
+      # Infrastructure expects (system.cpu.load_average.1m → system.load.1,
+      # computes system.memory.actual.used.pct from usage/total, etc.).
+      # drop_original removes the OTel-named originals so only ECS fields land
+      # in Elasticsearch.
+      elasticinframetrics:
+        add_system_metrics: true
+        add_k8s_metrics: true
+        drop_original: true
+
+      # elasticinframetrics emits system.load.cores alongside CPU metrics (same
+      # scope/timestamp), causing it to land in the metrics-system.cpu-default
+      # TSDB index where the double_metrics dynamic template doesn't exist.
+      # Drop it post-conversion; system.load.cores is still emitted correctly in
+      # the metrics-system.load-default document.
+      filter/drop_load_cores_from_cpu:
+        metrics:
+          datapoint:
+            - 'metric.name == "system.load.cores" and attributes["data_stream.dataset"] == "system.cpu"'
+
+      # elasticinframetrics maps os.type → host.os.platform but ignores os.name and
+      # os.version. Kibana's metadata summary panel reads host.os.name and host.os.version
+      # directly. Copy them from the OTel resource attributes that resourcedetection set.
+      transform/host_os_metadata:
+        metric_statements:
+          - context: resource
+            statements:
+              - 'set(attributes["host.os.version"], attributes["os.version"]) where attributes["os.version"] != nil'
+              - 'set(attributes["host.os.name"], attributes["os.name"]) where attributes["os.name"] != nil'
+
+      # Kibana's process list groups processes by process.command_line (top_N by CPU/memory).
+      # elasticinframetrics maps the OTel process.command_line attribute to system.process.cmdline
+      # and drops the original, so process.command_line is absent from ES documents — the terms
+      # aggregation returns 0 buckets and Kibana shows an empty list.
+      # Copy system.process.cmdline back to process.command_line so the field exists.
+      transform/fix_process_command_line:
+        metric_statements:
+          - context: datapoint
+            statements:
+              - 'set(attributes["process.command_line"], attributes["system.process.cmdline"]) where attributes["data_stream.dataset"] == "system.process"'
+
+      # Kibana Infrastructure host detail network charts use Lens formulas that query
+      # host.network.ingress.bytes and host.network.egress.bytes.
+      # elasticinframetrics renames OTel system.network.io to the metric names
+      # system.network.in.bytes / system.network.out.bytes (written as ES fields via
+      # the metric name), but Kibana expects host.network.ingress.bytes and
+      # host.network.egress.bytes. Copy the metric value into a datapoint attribute
+      # with the host.* name so both field paths land in the ES document.
+      transform/fix_network_host_fields:
+        metric_statements:
+          - context: datapoint
+            statements:
+              - 'set(attributes["host.network.ingress.bytes"], value_int) where metric.name == "system.network.in.bytes"'
+              - 'set(attributes["host.network.egress.bytes"], value_int) where metric.name == "system.network.out.bytes"'
+
+    exporters:
+      elasticsearch:
+        endpoints: ["http://elasticsearch.elastic.svc.cluster.local:9200"]
+        user: elastic
+        password: elastic123
+        mapping:
+          mode: otel
+      debug:
+        verbosity: basic
+
+    service:
+      extensions: [health_check]
+      telemetry:
+        logs:
+          level: info
+      pipelines:
+        metrics:
+          receivers: [hostmetrics, kubeletstats]
+          processors: [memory_limiter, resourcedetection, resource, transform/infra_ecs_mode, elasticinframetrics, filter/drop_load_cores_from_cpu, transform/host_os_metadata, transform/fix_process_command_line, transform/fix_network_host_fields, batch]
+          exporters: [elasticsearch, debug]

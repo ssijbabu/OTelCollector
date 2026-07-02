@@ -12,3 +12,13 @@ otelcollector/builder
 
 # macOS
 .DS_Store
+
+# Claude Code tooling state (memory, session files)
+.claude/
+
+# Scratch / test artifacts
+test-results/
+undefined/
+
+# Sample Elasticsearch export files (too large for GitHub)
+*.ndjson

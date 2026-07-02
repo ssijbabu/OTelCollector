@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-gateway
+  namespace: otel-gateway
+  labels:
+    app: otel-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: otel-gateway
+  template:
+    metadata:
+      labels:
+        app: otel-gateway
+    spec:
+      containers:
+      - name: otel-gateway
+        # Uses the same locally built image as the node collector (includes kafkareceiver + elasticsearchexporter).
+        # Build: docker build -f otelcollector/Dockerfile -t otelcollector:latest .
+        image: otelcollector:latest
+        imagePullPolicy: Never
+        args:
+        - --config=/etc/otelcol/config.yaml
+        ports:
+        - name: health
+          containerPort: 13133
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /
+            port: health
+          initialDelaySeconds: 15
+          periodSeconds: 20
+          failureThreshold: 3
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /
+            port: health
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          failureThreshold: 3
+          timeoutSeconds: 5
+        volumeMounts:
+        - name: config
+          mountPath: /etc/otelcol
+          readOnly: true
+      volumes:
+      - name: config
+        configMap:
+          name: otel-gateway-config

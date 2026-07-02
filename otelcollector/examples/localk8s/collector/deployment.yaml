@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: otel-collector
+  labels:
+    app: otel-collector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: otel-collector
+  template:
+    metadata:
+      labels:
+        app: otel-collector
+    spec:
+      serviceAccountName: otel-collector
+      containers:
+      - name: otel-collector
+        image: otelcollector:latest
+        imagePullPolicy: Never
+        args:
+        - --config=/etc/otelcol/config.yaml
+        securityContext:
+          runAsUser: 0
+        ports:
+        - name: otlp-grpc
+          containerPort: 4317
+        - name: otlp-http
+          containerPort: 4318
+        - name: health
+          containerPort: 13133
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        livenessProbe:
+          httpGet:
+            path: /
+            port: health
+          initialDelaySeconds: 10
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /
+            port: health
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        volumeMounts:
+        - name: config
+          mountPath: /etc/otelcol
+          readOnly: true
+        - name: varlogpods
+          mountPath: /var/log/pods
+          readOnly: true
+        - name: varlibdocker
+          mountPath: /var/lib/docker/containers
+          readOnly: true
+        - name: file-storage
+          mountPath: /var/lib/otelcol/file_storage
+      volumes:
+      - name: config
+        configMap:
+          name: otel-collector-config
+      - name: varlogpods
+        hostPath:
+          path: /var/log/pods
+      - name: varlibdocker
+        hostPath:
+          path: /var/lib/docker/containers
+      - name: file-storage
+        emptyDir: {}

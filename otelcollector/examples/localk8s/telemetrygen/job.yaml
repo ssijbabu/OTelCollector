@@ -1,0 +1,62 @@
+# Runs telemetrygen as a Kubernetes Job to send test telemetry to the otel-collector.
+# Sends logs, traces, and metrics in parallel via three init containers, then exits.
+#
+# Usage:
+#   kubectl apply -f examples/k8s/telemetrygen/job.yaml
+#
+# Prerequisites:
+#   - otel-collector Service is reachable at otel-collector.otel-collector.svc.cluster.local:4317
+#   - Namespace otel-collector exists (see collector/namespace.yaml)
+#
+# To re-run: delete the Job and re-apply.
+#   kubectl delete job telemetrygen -n otel-collector
+#   kubectl apply -f examples/k8s/telemetrygen/job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: telemetrygen
+  namespace: otel-collector
+  labels:
+    app: telemetrygen
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app: telemetrygen
+    spec:
+      restartPolicy: Never
+
+      initContainers:
+      - name: send-logs
+        image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest
+        args:
+        - logs
+        - --otlp-insecure
+        - --otlp-endpoint=otel-collector.otel-collector.svc.cluster.local:4317
+        - --duration=10s
+        - --rate=5
+        - --body=telemetrygen test log from k8s
+
+      - name: send-traces
+        image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest
+        args:
+        - traces
+        - --otlp-insecure
+        - --otlp-endpoint=otel-collector.otel-collector.svc.cluster.local:4317
+        - --duration=10s
+        - --rate=5
+
+      - name: send-metrics
+        image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest
+        args:
+        - metrics
+        - --otlp-insecure
+        - --otlp-endpoint=otel-collector.otel-collector.svc.cluster.local:4317
+        - --duration=10s
+        - --rate=5
+
+      containers:
+      - name: done
+        image: busybox:latest
+        command: ["/bin/sh", "-c", "echo telemetrygen complete"]
