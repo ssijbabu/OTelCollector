@@ -10,6 +10,7 @@ require (
 	github.com/elastic/opentelemetry-collector-components/extension/apikeyauthextension v0.50.0
 	github.com/elastic/opentelemetry-collector-components/extension/apmconfigextension v0.50.0
 	github.com/elastic/opentelemetry-collector-components/processor/elasticapmprocessor v0.50.0
+	github.com/elastic/opentelemetry-collector-components/processor/elasticinframetricsprocessor v0.50.0
 	github.com/elastic/opentelemetry-collector-components/processor/ratelimitprocessor v0.50.0
 	github.com/elastic/opentelemetry-collector-components/receiver/elasticapmintakereceiver v0.50.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/connector/otlpjsonconnector v0.152.0
@@ -79,6 +80,7 @@ require (
 	github.com/open-telemetry/opentelemetry-collector-contrib/receiver/zookeeperreceiver v0.152.0
 	github.com/ssijbabu/azureeventhubexporter v0.2.0
 	github.com/ssijbabu/azureeventhubreceiver v0.1.3
+	github.com/ssijbabu/sizebatchprocessor v0.1.0
 	go.opentelemetry.io/collector/component v1.61.0
 	go.opentelemetry.io/collector/confmap v1.61.0
 	go.opentelemetry.io/collector/confmap/provider/envprovider v1.58.0
@@ -96,7 +98,7 @@ require (
 	go.opentelemetry.io/collector/extension v1.61.0
 	go.opentelemetry.io/collector/extension/memorylimiterextension v0.152.0
 	go.opentelemetry.io/collector/otelcol v0.152.0
-	go.opentelemetry.io/collector/processor v1.58.0
+	go.opentelemetry.io/collector/processor v1.61.0
 	go.opentelemetry.io/collector/processor/batchprocessor v0.152.0
 	go.opentelemetry.io/collector/processor/memorylimiterprocessor v0.152.0
 	go.opentelemetry.io/collector/receiver v1.61.0
@@ -212,9 +214,9 @@ require (
 	github.com/elastic/go-grok v0.3.1 // indirect
 	github.com/elastic/go-structform v0.0.12 // indirect
 	github.com/elastic/lunes v0.2.2 // indirect
-	github.com/elastic/opentelemetry-collector-components/internal/elasticattr v0.50.0 // indirect
+	github.com/elastic/opentelemetry-collector-components/internal/elasticattr v0.40.0 // indirect
 	github.com/elastic/opentelemetry-collector-components/internal/sharedcomponent v0.0.0-20250220025958-386ba0c4bced // indirect
-	github.com/elastic/opentelemetry-collector-components/processor/lsmintervalprocessor v0.50.0 // indirect
+	github.com/elastic/opentelemetry-collector-components/processor/lsmintervalprocessor v0.8.0 // indirect
 	github.com/elastic/opentelemetry-lib v0.39.0 // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
 	github.com/envoyproxy/go-control-plane/envoy v1.37.0 // indirect
@@ -476,7 +478,7 @@ require (
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/collector v0.152.0 // indirect
 	go.opentelemetry.io/collector/client v1.58.0 // indirect
-	go.opentelemetry.io/collector/component/componentstatus v0.152.0 // indirect
+	go.opentelemetry.io/collector/component/componentstatus v0.155.0 // indirect
 	go.opentelemetry.io/collector/component/componenttest v0.155.0 // indirect
 	go.opentelemetry.io/collector/config/configauth v1.58.0 // indirect
 	go.opentelemetry.io/collector/config/configcompression v1.58.0 // indirect
@@ -519,10 +521,10 @@ require (
 	go.opentelemetry.io/collector/pdata/xpdata v0.152.0 // indirect
 	go.opentelemetry.io/collector/pipeline v1.61.0 // indirect
 	go.opentelemetry.io/collector/pipeline/xpipeline v0.155.0 // indirect
-	go.opentelemetry.io/collector/processor/processorhelper v0.152.0 // indirect
+	go.opentelemetry.io/collector/processor/processorhelper v0.155.0 // indirect
 	go.opentelemetry.io/collector/processor/processorhelper/xprocessorhelper v0.152.0 // indirect
-	go.opentelemetry.io/collector/processor/processortest v0.152.0 // indirect
-	go.opentelemetry.io/collector/processor/xprocessor v0.152.0 // indirect
+	go.opentelemetry.io/collector/processor/processortest v0.155.0 // indirect
+	go.opentelemetry.io/collector/processor/xprocessor v0.155.0 // indirect
 	go.opentelemetry.io/collector/receiver/receiverhelper v0.155.0 // indirect
 	go.opentelemetry.io/collector/receiver/receivertest v0.155.0 // indirect
 	go.opentelemetry.io/collector/receiver/xreceiver v0.155.0 // indirect
@@ -604,9 +606,11 @@ replace github.com/ssijbabu/azureeventhubreceiver v0.1.3 => ../azureeventhubrece
 
 replace github.com/ssijbabu/azureeventhubexporter v0.2.0 => ../azureeventhubexporter
 
-replace github.com/elastic/opentelemetry-collector-components/internal/elasticattr v0.50.0 => github.com/elastic/opentelemetry-collector-components/internal/elasticattr v0.50.0
+replace github.com/ssijbabu/sizebatchprocessor v0.1.0 => ../sizebatchprocessor
 
-replace github.com/elastic/opentelemetry-collector-components/processor/lsmintervalprocessor v0.50.0 => github.com/elastic/opentelemetry-collector-components/processor/lsmintervalprocessor v0.50.0
+replace github.com/elastic/opentelemetry-collector-components/internal/elasticattr v0.40.0 => github.com/elastic/opentelemetry-collector-components/internal/elasticattr v0.50.0
+
+replace github.com/elastic/opentelemetry-collector-components/processor/lsmintervalprocessor v0.8.0 => github.com/elastic/opentelemetry-collector-components/processor/lsmintervalprocessor v0.50.0
 
 replace github.com/open-telemetry/opentelemetry-collector-contrib/internal/coreinternal v0.155.0 => github.com/open-telemetry/opentelemetry-collector-contrib/internal/coreinternal v0.152.0
 

@@ -90,6 +90,9 @@ processors:
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/resourceprocessor v0.152.0
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/tailsamplingprocessor v0.152.0
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/transformprocessor v0.152.0
+  # Size-based batch processor — flushes when accumulated payload exceeds a byte threshold
+  - gomod: github.com/ssijbabu/sizebatchprocessor v0.1.0
+    path: ../sizebatchprocessor
 
 exporters:
   - gomod: go.opentelemetry.io/collector/exporter/debugexporter v0.152.0

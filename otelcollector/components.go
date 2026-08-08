@@ -46,6 +46,7 @@ import (
 	batchprocessor "go.opentelemetry.io/collector/processor/batchprocessor"
 	cumulativetodeltaprocessor "github.com/open-telemetry/opentelemetry-collector-contrib/processor/cumulativetodeltaprocessor"
 	elasticapmprocessor "github.com/elastic/opentelemetry-collector-components/processor/elasticapmprocessor"
+	elasticinframetricsprocessor "github.com/elastic/opentelemetry-collector-components/processor/elasticinframetricsprocessor"
 	filterprocessor "github.com/open-telemetry/opentelemetry-collector-contrib/processor/filterprocessor"
 	geoipprocessor "github.com/open-telemetry/opentelemetry-collector-contrib/processor/geoipprocessor"
 	k8sattributesprocessor "github.com/open-telemetry/opentelemetry-collector-contrib/processor/k8sattributesprocessor"
@@ -56,6 +57,7 @@ import (
 	resourceprocessor "github.com/open-telemetry/opentelemetry-collector-contrib/processor/resourceprocessor"
 	tailsamplingprocessor "github.com/open-telemetry/opentelemetry-collector-contrib/processor/tailsamplingprocessor"
 	transformprocessor "github.com/open-telemetry/opentelemetry-collector-contrib/processor/transformprocessor"
+	sizebatchprocessor "github.com/ssijbabu/sizebatchprocessor"
 	apachereceiver "github.com/open-telemetry/opentelemetry-collector-contrib/receiver/apachereceiver"
 	awss3receiver "github.com/open-telemetry/opentelemetry-collector-contrib/receiver/awss3receiver"
 	couchdbreceiver "github.com/open-telemetry/opentelemetry-collector-contrib/receiver/couchdbreceiver"
@@ -274,6 +276,7 @@ func components() (otelcol.Factories, error) {
 		batchprocessor.NewFactory(),
 		cumulativetodeltaprocessor.NewFactory(),
 		elasticapmprocessor.NewFactory(),
+		elasticinframetricsprocessor.NewFactory(),
 		filterprocessor.NewFactory(),
 		geoipprocessor.NewFactory(),
 		k8sattributesprocessor.NewFactory(),
@@ -284,6 +287,7 @@ func components() (otelcol.Factories, error) {
 		resourceprocessor.NewFactory(),
 		tailsamplingprocessor.NewFactory(),
 		transformprocessor.NewFactory(),
+		sizebatchprocessor.NewFactory(),
 	)
 	if err != nil {
 		return otelcol.Factories{}, err
@@ -293,6 +297,7 @@ func components() (otelcol.Factories, error) {
 		batchprocessor.NewFactory().Type(): "go.opentelemetry.io/collector/processor/batchprocessor v0.152.0",
 		cumulativetodeltaprocessor.NewFactory().Type(): "github.com/open-telemetry/opentelemetry-collector-contrib/processor/cumulativetodeltaprocessor v0.152.0",
 		elasticapmprocessor.NewFactory().Type(): "github.com/elastic/opentelemetry-collector-components/processor/elasticapmprocessor v0.50.0",
+		elasticinframetricsprocessor.NewFactory().Type(): "github.com/elastic/opentelemetry-collector-components/processor/elasticinframetricsprocessor v0.50.0",
 		filterprocessor.NewFactory().Type(): "github.com/open-telemetry/opentelemetry-collector-contrib/processor/filterprocessor v0.152.0",
 		geoipprocessor.NewFactory().Type(): "github.com/open-telemetry/opentelemetry-collector-contrib/processor/geoipprocessor v0.152.0",
 		k8sattributesprocessor.NewFactory().Type(): "github.com/open-telemetry/opentelemetry-collector-contrib/processor/k8sattributesprocessor v0.152.0",
@@ -303,6 +308,7 @@ func components() (otelcol.Factories, error) {
 		resourceprocessor.NewFactory().Type(): "github.com/open-telemetry/opentelemetry-collector-contrib/processor/resourceprocessor v0.152.0",
 		tailsamplingprocessor.NewFactory().Type(): "github.com/open-telemetry/opentelemetry-collector-contrib/processor/tailsamplingprocessor v0.152.0",
 		transformprocessor.NewFactory().Type(): "github.com/open-telemetry/opentelemetry-collector-contrib/processor/transformprocessor v0.152.0",
+		sizebatchprocessor.NewFactory().Type(): "github.com/ssijbabu/sizebatchprocessor v0.1.0",
 	})
 
 	factories.Connectors, err = otelcol.MakeFactoryMap[connector.Factory](
