@@ -36,7 +36,7 @@ func createDefaultConfig() component.Config {
 }
 
 func createLogsExporter(ctx context.Context, set exporter.Settings, cfg component.Config) (exporter.Logs, error) {
-	exp := newExporter(cfg.(*Config), set.Logger)
+	exp := newExporter(cfg.(*Config), set)
 	return exporterhelper.NewLogs(ctx, set, cfg,
 		exp.ConsumeLogs,
 		exporterhelper.WithStart(exp.start),
@@ -48,7 +48,7 @@ func createLogsExporter(ctx context.Context, set exporter.Settings, cfg componen
 }
 
 func createMetricsExporter(ctx context.Context, set exporter.Settings, cfg component.Config) (exporter.Metrics, error) {
-	exp := newExporter(cfg.(*Config), set.Logger)
+	exp := newExporter(cfg.(*Config), set)
 	return exporterhelper.NewMetrics(ctx, set, cfg,
 		exp.ConsumeMetrics,
 		exporterhelper.WithStart(exp.start),
@@ -60,7 +60,7 @@ func createMetricsExporter(ctx context.Context, set exporter.Settings, cfg compo
 }
 
 func createTracesExporter(ctx context.Context, set exporter.Settings, cfg component.Config) (exporter.Traces, error) {
-	exp := newExporter(cfg.(*Config), set.Logger)
+	exp := newExporter(cfg.(*Config), set)
 	return exporterhelper.NewTraces(ctx, set, cfg,
 		exp.ConsumeTraces,
 		exporterhelper.WithStart(exp.start),

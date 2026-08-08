@@ -11,10 +11,12 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2"
+	"github.com/IBM/sarama"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/component/componenttest"
+	"go.opentelemetry.io/collector/exporter"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/pmetric"
@@ -42,12 +44,11 @@ func errSender(err error) func(context.Context, string, []byte) error {
 }
 
 func newTestExporter(cfg *Config) *azureEventHubExporter {
-	e := &azureEventHubExporter{
-		config: cfg,
-		logger: zap.NewNop(),
+	set := exporter.Settings{
+		TelemetrySettings: componenttest.NewNopTelemetrySettings(),
 	}
-	e.doSend = e.send // default; tests override this
-	return e
+	set.TelemetrySettings.Logger = zap.NewNop()
+	return newExporter(cfg, set)
 }
 
 // --- partition iterator tests ---
@@ -297,6 +298,30 @@ func TestSend_PartitionKeySetOnBatch(t *testing.T) {
 
 	err := exp.send(context.Background(), "my-key", []byte("data"))
 	assert.ErrorContains(t, err, "failed to create event data batch")
+}
+
+func TestSend_OversizedPayloadIsDropped(t *testing.T) {
+	// Inject addEventFn to return ErrEventDataTooLarge without a real batch
+	// (the SDK panics on a nil *EventDataBatch receiver).
+	exp := newTestExporter(&Config{})
+	exp.producer = &fakeProducer{sendBatchErr: nil}
+	exp.addEventFn = func(_ *azeventhubs.EventDataBatch, _ *azeventhubs.EventData) error {
+		return azeventhubs.ErrEventDataTooLarge
+	}
+
+	err := exp.send(context.Background(), "", make([]byte, 1024))
+	assert.NoError(t, err, "oversized AMQP payload must be silently dropped")
+}
+
+func TestKafkaSend_OversizedPayloadIsDropped(t *testing.T) {
+	exp := newTestExporter(&Config{})
+	exp.kafkaSender = &kafkaSenderImpl{
+		producer: &fakeSyncProducer{sendErr: sarama.ErrMessageSizeTooLarge},
+		topic:    "test",
+	}
+
+	err := exp.kafkaSend(context.Background(), "", make([]byte, 1024))
+	assert.NoError(t, err, "oversized Kafka payload must be silently dropped")
 }
 
 // --- shutdown tests ---

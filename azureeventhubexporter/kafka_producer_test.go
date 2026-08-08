@@ -36,13 +36,10 @@ func (f *fakeSyncProducer) Close() error {
 // newTestKafkaExporter builds an exporter wired to a fake Kafka producer,
 // bypassing the start() path so tests run without a live broker.
 func newTestKafkaExporter(cfg *Config, fake *fakeSyncProducer) *azureEventHubExporter {
-	e := &azureEventHubExporter{
-		config: cfg,
-		logger: zap.NewNop(),
-		kafkaSender: &kafkaSenderImpl{
-			producer: fake,
-			topic:    "test-hub",
-		},
+	e := newTestExporter(cfg)
+	e.kafkaSender = &kafkaSenderImpl{
+		producer: fake,
+		topic:    "test-hub",
 	}
 	e.doSend = e.kafkaSend
 	return e

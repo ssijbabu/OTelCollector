@@ -8,13 +8,18 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2"
+	"github.com/IBM/sarama"
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/exporter"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/ptrace"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.uber.org/zap"
 
 	"go.opentelemetry.io/collector/pdata/pcommon"
@@ -49,14 +54,60 @@ type azureEventHubExporter struct {
 	// (partitionKey, body) pair. It defaults to e.send (AMQP) and can be
 	// replaced in tests to capture output without a live connection.
 	doSend func(ctx context.Context, partitionKey string, body []byte) error
+	// addEventFn wraps batch.AddEventData so tests can inject ErrEventDataTooLarge
+	// without needing a real EventDataBatch (the SDK panics on a nil receiver).
+	addEventFn        func(*azeventhubs.EventDataBatch, *azeventhubs.EventData) error
+	droppedBatches    metric.Int64Counter
+	droppedBytes      metric.Int64Counter
+	sentBatches       metric.Int64Counter
+	sentBytes         metric.Int64Counter
+	sendDuration      metric.Float64Histogram
+	partitionsPerBatch metric.Int64Histogram
 }
 
-func newExporter(config *Config, logger *zap.Logger) *azureEventHubExporter {
+func newExporter(config *Config, set exporter.Settings) *azureEventHubExporter {
 	e := &azureEventHubExporter{
 		config: config,
-		logger: logger,
+		logger: set.Logger,
 	}
 	e.doSend = e.send
+	e.addEventFn = func(b *azeventhubs.EventDataBatch, ed *azeventhubs.EventData) error {
+		return b.AddEventData(ed, nil)
+	}
+
+	meter := set.TelemetrySettings.MeterProvider.Meter("github.com/ssijbabu/azureeventhubexporter")
+	e.droppedBatches, _ = meter.Int64Counter(
+		"azureeventhub_exporter_dropped_batches",
+		metric.WithDescription("Number of telemetry batches dropped because they exceeded the Event Hub message size limit"),
+		metric.WithUnit("{batch}"),
+	)
+	e.droppedBytes, _ = meter.Int64Counter(
+		"azureeventhub_exporter_dropped_bytes",
+		metric.WithDescription("Bytes of telemetry dropped because the payload exceeded the Event Hub message size limit"),
+		metric.WithUnit("By"),
+	)
+	e.sentBatches, _ = meter.Int64Counter(
+		"azureeventhub_exporter_sent_batches",
+		metric.WithDescription("Number of telemetry batches successfully sent to Event Hub"),
+		metric.WithUnit("{batch}"),
+	)
+	e.sentBytes, _ = meter.Int64Counter(
+		"azureeventhub_exporter_sent_bytes",
+		metric.WithDescription("Bytes of telemetry successfully sent to Event Hub"),
+		metric.WithUnit("By"),
+	)
+	e.sendDuration, _ = meter.Float64Histogram(
+		"azureeventhub_exporter_send_duration",
+		metric.WithDescription("Wall-clock time of a single successful Event Hub send call"),
+		metric.WithUnit("ms"),
+		metric.WithExplicitBucketBoundaries(1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000),
+	)
+	e.partitionsPerBatch, _ = meter.Int64Histogram(
+		"azureeventhub_exporter_partitions_per_batch",
+		metric.WithDescription("Number of Event Hub messages produced per Consume call (one per partition group)"),
+		metric.WithUnit("{message}"),
+		metric.WithExplicitBucketBoundaries(1, 2, 5, 10, 25, 50, 100, 250, 500),
+	)
 	return e
 }
 
@@ -141,12 +192,30 @@ func (e *azureEventHubExporter) shutdown(ctx context.Context) error {
 
 // kafkaSend forwards a single (partitionKey, body) pair to the Kafka sender.
 func (e *azureEventHubExporter) kafkaSend(ctx context.Context, partitionKey string, body []byte) error {
-	return e.kafkaSender.send(ctx, partitionKey, body)
+	start := time.Now()
+	err := e.kafkaSender.send(ctx, partitionKey, body)
+	if errors.Is(err, sarama.ErrMessageSizeTooLarge) {
+		e.logger.Warn("dropping telemetry: payload exceeds Event Hub Kafka broker message size limit",
+			zap.Int("bytes", len(body)),
+		)
+		e.droppedBatches.Add(ctx, 1)
+		e.droppedBytes.Add(ctx, int64(len(body)))
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	proto := attribute.String("protocol", "kafka")
+	e.sendDuration.Record(ctx, float64(time.Since(start).Milliseconds()), metric.WithAttributes(proto))
+	e.sentBatches.Add(ctx, 1, metric.WithAttributes(proto))
+	e.sentBytes.Add(ctx, int64(len(body)), metric.WithAttributes(proto))
+	return nil
 }
 
 // ConsumeLogs splits the batch according to the configured partition strategy and
 // sends each partition group as a separate Event Hub message.
 func (e *azureEventHubExporter) ConsumeLogs(ctx context.Context, ld plog.Logs) error {
+	var n int64
 	for partitionKey, partialLogs := range e.partitionLogs(ld) {
 		body, err := (&plog.JSONMarshaler{}).MarshalLogs(partialLogs)
 		if err != nil {
@@ -155,13 +224,16 @@ func (e *azureEventHubExporter) ConsumeLogs(ctx context.Context, ld plog.Logs) e
 		if err = e.doSend(ctx, partitionKey, body); err != nil {
 			return err
 		}
+		n++
 	}
+	e.partitionsPerBatch.Record(ctx, n, metric.WithAttributes(attribute.String("signal", "logs")))
 	return nil
 }
 
 // ConsumeMetrics splits the batch according to the configured partition strategy and
 // sends each partition group as a separate Event Hub message.
 func (e *azureEventHubExporter) ConsumeMetrics(ctx context.Context, md pmetric.Metrics) error {
+	var n int64
 	for partitionKey, partialMetrics := range e.partitionMetrics(md) {
 		body, err := (&pmetric.JSONMarshaler{}).MarshalMetrics(partialMetrics)
 		if err != nil {
@@ -170,13 +242,16 @@ func (e *azureEventHubExporter) ConsumeMetrics(ctx context.Context, md pmetric.M
 		if err = e.doSend(ctx, partitionKey, body); err != nil {
 			return err
 		}
+		n++
 	}
+	e.partitionsPerBatch.Record(ctx, n, metric.WithAttributes(attribute.String("signal", "metrics")))
 	return nil
 }
 
 // ConsumeTraces splits the batch according to the configured partition strategy and
 // sends each partition group as a separate Event Hub message.
 func (e *azureEventHubExporter) ConsumeTraces(ctx context.Context, td ptrace.Traces) error {
+	var n int64
 	for partitionKey, partialTraces := range e.partitionTraces(td) {
 		body, err := (&ptrace.JSONMarshaler{}).MarshalTraces(partialTraces)
 		if err != nil {
@@ -185,7 +260,9 @@ func (e *azureEventHubExporter) ConsumeTraces(ctx context.Context, td ptrace.Tra
 		if err = e.doSend(ctx, partitionKey, body); err != nil {
 			return err
 		}
+		n++
 	}
+	e.partitionsPerBatch.Record(ctx, n, metric.WithAttributes(attribute.String("signal", "traces")))
 	return nil
 }
 
@@ -265,6 +342,7 @@ func (e *azureEventHubExporter) partitionTraces(td ptrace.Traces) iter.Seq2[stri
 // send creates an Event Hub batch optionally pinned to a partition key and sends it.
 // An empty partitionKey means Event Hubs will pick the partition (round-robin).
 func (e *azureEventHubExporter) send(ctx context.Context, partitionKey string, body []byte) error {
+	start := time.Now()
 	var opts *azeventhubs.EventDataBatchOptions
 	if partitionKey != "" {
 		opts = &azeventhubs.EventDataBatchOptions{PartitionKey: &partitionKey}
@@ -275,9 +353,14 @@ func (e *azureEventHubExporter) send(ctx context.Context, partitionKey string, b
 		return fmt.Errorf("failed to create event data batch: %w", err)
 	}
 
-	if err = batch.AddEventData(&azeventhubs.EventData{Body: body}, nil); err != nil {
+	if err = e.addEventFn(batch, &azeventhubs.EventData{Body: body}); err != nil {
 		if errors.Is(err, azeventhubs.ErrEventDataTooLarge) {
-			return fmt.Errorf("telemetry payload (%d bytes) exceeds the maximum Event Hub message size: reduce upstream batch size", len(body))
+			e.logger.Warn("dropping telemetry: payload exceeds Event Hub message size limit",
+				zap.Int("bytes", len(body)),
+			)
+			e.droppedBatches.Add(ctx, 1)
+			e.droppedBytes.Add(ctx, int64(len(body)))
+			return nil
 		}
 		return fmt.Errorf("failed to add event data to batch: %w", err)
 	}
@@ -285,5 +368,9 @@ func (e *azureEventHubExporter) send(ctx context.Context, partitionKey string, b
 	if err = e.producer.SendEventDataBatch(ctx, batch, nil); err != nil {
 		return fmt.Errorf("failed to send event data batch: %w", err)
 	}
+	proto := attribute.String("protocol", "amqp")
+	e.sendDuration.Record(ctx, float64(time.Since(start).Milliseconds()), metric.WithAttributes(proto))
+	e.sentBatches.Add(ctx, 1, metric.WithAttributes(proto))
+	e.sentBytes.Add(ctx, int64(len(body)), metric.WithAttributes(proto))
 	return nil
 }
