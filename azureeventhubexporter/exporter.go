@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package azureeventhubexporter // import "github.com/ssijbabu/azureeventhubexporter"
+package azureeventhubexporter
 
 import (
 	"context"

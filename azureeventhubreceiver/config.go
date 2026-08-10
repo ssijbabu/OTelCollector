@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package azureeventhubreceiver // import "github.com/ssijbabu/azureeventhubreceiver"
+package azureeventhubreceiver
 
 import (
 	"errors"

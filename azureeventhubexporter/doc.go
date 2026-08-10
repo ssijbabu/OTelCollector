@@ -4,4 +4,4 @@
 //go:generate make mdatagen
 
 // Package azureeventhubexporter sends OpenTelemetry data to Azure Event Hubs.
-package azureeventhubexporter // import "github.com/ssijbabu/azureeventhubexporter"
+package azureeventhubexporter
