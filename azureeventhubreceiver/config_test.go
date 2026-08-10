@@ -13,7 +13,7 @@ import (
 	"go.opentelemetry.io/collector/confmap/confmaptest"
 	"go.opentelemetry.io/collector/confmap/xconfmap"
 
-	"github.com/ssijbabu/azureeventhubreceiver/internal/metadata"
+	"shb.biz/azureeventhubreceiver/internal/metadata"
 )
 
 func TestLoadConfig(t *testing.T) {

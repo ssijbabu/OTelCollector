@@ -78,9 +78,6 @@ require (
 	github.com/open-telemetry/opentelemetry-collector-contrib/receiver/windowsperfcountersreceiver v0.152.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/receiver/zipkinreceiver v0.152.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/receiver/zookeeperreceiver v0.152.0
-	github.com/ssijbabu/azureeventhubexporter v0.2.0
-	github.com/ssijbabu/azureeventhubreceiver v0.1.3
-	github.com/ssijbabu/sizebatchprocessor v0.1.0
 	go.opentelemetry.io/collector/component v1.61.0
 	go.opentelemetry.io/collector/confmap v1.61.0
 	go.opentelemetry.io/collector/confmap/provider/envprovider v1.58.0
@@ -106,6 +103,9 @@ require (
 	go.opentelemetry.io/collector/receiver/otlpreceiver v0.152.0
 	go.opentelemetry.io/collector/service v0.152.0
 	golang.org/x/sys v0.46.0
+	shb.biz/azureeventhubexporter v0.2.0
+	shb.biz/azureeventhubreceiver v0.1.3
+	shb.biz/sizebatchprocessor v0.1.0
 )
 
 require (
@@ -602,11 +602,11 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-replace github.com/ssijbabu/azureeventhubreceiver v0.1.3 => ../azureeventhubreceiver
+replace shb.biz/azureeventhubreceiver v0.1.3 => ../azureeventhubreceiver
 
-replace github.com/ssijbabu/azureeventhubexporter v0.2.0 => ../azureeventhubexporter
+replace shb.biz/azureeventhubexporter v0.2.0 => ../azureeventhubexporter
 
-replace github.com/ssijbabu/sizebatchprocessor v0.1.0 => ../sizebatchprocessor
+replace shb.biz/sizebatchprocessor v0.1.0 => ../sizebatchprocessor
 
 replace github.com/elastic/opentelemetry-collector-components/internal/elasticattr v0.40.0 => github.com/elastic/opentelemetry-collector-components/internal/elasticattr v0.50.0
 

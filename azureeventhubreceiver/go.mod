@@ -1,4 +1,4 @@
-module github.com/ssijbabu/azureeventhubreceiver
+module shb.biz/azureeventhubreceiver
 
 go 1.25.0
 

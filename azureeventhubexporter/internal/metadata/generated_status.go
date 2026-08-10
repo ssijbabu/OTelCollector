@@ -10,7 +10,7 @@ import (
 
 var (
 	Type      = component.MustNewType("azure_event_hub")
-	ScopeName = "github.com/ssijbabu/azureeventhubexporter"
+	ScopeName = "shb.biz/azureeventhubexporter"
 )
 
 const (

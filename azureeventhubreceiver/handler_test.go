@@ -18,7 +18,7 @@ import (
 	"go.opentelemetry.io/collector/receiver/receivertest"
 	"go.uber.org/zap"
 
-	"github.com/ssijbabu/azureeventhubreceiver/internal/metadata"
+	"shb.biz/azureeventhubreceiver/internal/metadata"
 )
 
 type mockHubWrapper struct{}

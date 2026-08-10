@@ -11,7 +11,7 @@ import (
 var (
 	Type           = component.MustNewType("azure_event_hub")
 	DeprecatedType = component.MustNewType("azureeventhub")
-	ScopeName      = "github.com/ssijbabu/azureeventhubreceiver"
+	ScopeName      = "shb.biz/azureeventhubreceiver"
 )
 
 const (

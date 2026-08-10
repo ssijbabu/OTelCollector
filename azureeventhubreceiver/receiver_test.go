@@ -17,7 +17,7 @@ import (
 	"go.opentelemetry.io/collector/pipeline"
 	"go.opentelemetry.io/collector/receiver/receivertest"
 
-	"github.com/ssijbabu/azureeventhubreceiver/internal/metadata"
+	"shb.biz/azureeventhubreceiver/internal/metadata"
 )
 
 func newTestEvent(data string) *azureEvent {

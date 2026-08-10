@@ -117,8 +117,6 @@ github.com/open-telemetry/opentelemetry-collector-contrib/internal/common v0.155
 github.com/open-telemetry/opentelemetry-collector-contrib/internal/common v0.155.0/go.mod h1:29i06ZNQ83QAZ05672QuYWiRwae3t8n+s+TWp7WL9d0=
 github.com/open-telemetry/opentelemetry-collector-contrib/internal/coreinternal v0.155.0 h1:CJosD1GUi/DDW4kW/oKw2XZG3SZsfdQDBsSwgq2PK0w=
 github.com/open-telemetry/opentelemetry-collector-contrib/internal/coreinternal v0.155.0/go.mod h1:8rXdvtr2/lOJnBY2X4G4W9uG7GzEIidU+nNML/Ttv/w=
-github.com/open-telemetry/opentelemetry-collector-contrib/internal/sharedcomponent v0.155.0 h1:QYFdW1EPMbh87Ts8WurZF82vD3LqfvHfR5+uxhrgwCM=
-github.com/open-telemetry/opentelemetry-collector-contrib/internal/sharedcomponent v0.155.0/go.mod h1:FhSHLkHTqUkhO0bUnrZax59VhD1O9eBXWBNnL05UHVo=
 github.com/open-telemetry/opentelemetry-collector-contrib/pkg/stanza v0.155.0 h1:umDXG6ma9oFjoG8nnSEZoJOgvn3mY/95W2ikM/j/nNQ=
 github.com/open-telemetry/opentelemetry-collector-contrib/pkg/stanza v0.155.0/go.mod h1:1DFUJuGWhWhE4ABx+is/l7ZEzHxTfFhkrV00ZMfxBjI=
 github.com/pierrec/lz4/v4 v4.1.27 h1:+PhzhWDrjRj89TH2sw43nE3+4+W8lSxIuQadEHZyjUk=

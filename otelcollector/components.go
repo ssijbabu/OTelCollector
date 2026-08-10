@@ -25,7 +25,7 @@ import (
 	nopexporter "go.opentelemetry.io/collector/exporter/nopexporter"
 	otlpexporter "go.opentelemetry.io/collector/exporter/otlpexporter"
 	otlphttpexporter "go.opentelemetry.io/collector/exporter/otlphttpexporter"
-	azureeventhubexporter "github.com/ssijbabu/azureeventhubexporter"
+	azureeventhubexporter "shb.biz/azureeventhubexporter"
 	apikeyauthextension "github.com/elastic/opentelemetry-collector-components/extension/apikeyauthextension"
 	apmconfigextension "github.com/elastic/opentelemetry-collector-components/extension/apmconfigextension"
 	awslogsencodingextension "github.com/open-telemetry/opentelemetry-collector-contrib/extension/encoding/awslogsencodingextension"
@@ -57,7 +57,7 @@ import (
 	resourceprocessor "github.com/open-telemetry/opentelemetry-collector-contrib/processor/resourceprocessor"
 	tailsamplingprocessor "github.com/open-telemetry/opentelemetry-collector-contrib/processor/tailsamplingprocessor"
 	transformprocessor "github.com/open-telemetry/opentelemetry-collector-contrib/processor/transformprocessor"
-	sizebatchprocessor "github.com/ssijbabu/sizebatchprocessor"
+	sizebatchprocessor "shb.biz/sizebatchprocessor"
 	apachereceiver "github.com/open-telemetry/opentelemetry-collector-contrib/receiver/apachereceiver"
 	awss3receiver "github.com/open-telemetry/opentelemetry-collector-contrib/receiver/awss3receiver"
 	couchdbreceiver "github.com/open-telemetry/opentelemetry-collector-contrib/receiver/couchdbreceiver"
@@ -95,7 +95,7 @@ import (
 	windowseventlogreceiver "github.com/open-telemetry/opentelemetry-collector-contrib/receiver/windowseventlogreceiver"
 	windowsperfcountersreceiver "github.com/open-telemetry/opentelemetry-collector-contrib/receiver/windowsperfcountersreceiver"
 	zipkinreceiver "github.com/open-telemetry/opentelemetry-collector-contrib/receiver/zipkinreceiver"
-	azureeventhubreceiver "github.com/ssijbabu/azureeventhubreceiver"
+	azureeventhubreceiver "shb.biz/azureeventhubreceiver"
 	zookeeperreceiver "github.com/open-telemetry/opentelemetry-collector-contrib/receiver/zookeeperreceiver"
 )
 
@@ -241,7 +241,7 @@ func components() (otelcol.Factories, error) {
 		windowseventlogreceiver.NewFactory().Type(): "github.com/open-telemetry/opentelemetry-collector-contrib/receiver/windowseventlogreceiver v0.152.0",
 		windowsperfcountersreceiver.NewFactory().Type(): "github.com/open-telemetry/opentelemetry-collector-contrib/receiver/windowsperfcountersreceiver v0.152.0",
 		zipkinreceiver.NewFactory().Type(): "github.com/open-telemetry/opentelemetry-collector-contrib/receiver/zipkinreceiver v0.152.0",
-		azureeventhubreceiver.NewFactory().Type(): "github.com/ssijbabu/azureeventhubreceiver v0.1.3",
+		azureeventhubreceiver.NewFactory().Type(): "shb.biz/azureeventhubreceiver v0.1.3",
 		zookeeperreceiver.NewFactory().Type(): "github.com/open-telemetry/opentelemetry-collector-contrib/receiver/zookeeperreceiver v0.152.0",
 	})
 
@@ -268,7 +268,7 @@ func components() (otelcol.Factories, error) {
 		nopexporter.NewFactory().Type(): "go.opentelemetry.io/collector/exporter/nopexporter v0.152.0",
 		otlpexporter.NewFactory().Type(): "go.opentelemetry.io/collector/exporter/otlpexporter v0.152.0",
 		otlphttpexporter.NewFactory().Type(): "go.opentelemetry.io/collector/exporter/otlphttpexporter v0.152.0",
-		azureeventhubexporter.NewFactory().Type(): "github.com/ssijbabu/azureeventhubexporter v0.2.0",
+		azureeventhubexporter.NewFactory().Type(): "shb.biz/azureeventhubexporter v0.2.0",
 	})
 
 	factories.Processors, err = otelcol.MakeFactoryMap[processor.Factory](
@@ -308,7 +308,7 @@ func components() (otelcol.Factories, error) {
 		resourceprocessor.NewFactory().Type(): "github.com/open-telemetry/opentelemetry-collector-contrib/processor/resourceprocessor v0.152.0",
 		tailsamplingprocessor.NewFactory().Type(): "github.com/open-telemetry/opentelemetry-collector-contrib/processor/tailsamplingprocessor v0.152.0",
 		transformprocessor.NewFactory().Type(): "github.com/open-telemetry/opentelemetry-collector-contrib/processor/transformprocessor v0.152.0",
-		sizebatchprocessor.NewFactory().Type(): "github.com/ssijbabu/sizebatchprocessor v0.1.0",
+		sizebatchprocessor.NewFactory().Type(): "shb.biz/sizebatchprocessor v0.1.0",
 	})
 
 	factories.Connectors, err = otelcol.MakeFactoryMap[connector.Factory](

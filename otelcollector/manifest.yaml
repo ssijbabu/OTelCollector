@@ -70,7 +70,7 @@ receivers:
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/windowseventlogreceiver v0.152.0
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/windowsperfcountersreceiver v0.152.0
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/zipkinreceiver v0.152.0
-  - gomod: github.com/ssijbabu/azureeventhubreceiver v0.1.3
+  - gomod: shb.biz/azureeventhubreceiver v0.1.3
     path: ../azureeventhubreceiver
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/zookeeperreceiver v0.152.0
 
@@ -91,7 +91,7 @@ processors:
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/tailsamplingprocessor v0.152.0
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/transformprocessor v0.152.0
   # Size-based batch processor — flushes when accumulated payload exceeds a byte threshold
-  - gomod: github.com/ssijbabu/sizebatchprocessor v0.1.0
+  - gomod: shb.biz/sizebatchprocessor v0.1.0
     path: ../sizebatchprocessor
 
 exporters:
@@ -104,7 +104,7 @@ exporters:
   - gomod: go.opentelemetry.io/collector/exporter/otlpexporter v0.152.0
   - gomod: go.opentelemetry.io/collector/exporter/otlphttpexporter v0.152.0
   # Azure Event Hub exporter — extends the EDOT component set
-  - gomod: github.com/ssijbabu/azureeventhubexporter v0.2.0
+  - gomod: shb.biz/azureeventhubexporter v0.2.0
     path: ../azureeventhubexporter
 
 connectors:

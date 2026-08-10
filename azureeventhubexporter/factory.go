@@ -13,7 +13,7 @@ import (
 	"go.opentelemetry.io/collector/exporter/exporterhelper"
 	"go.opentelemetry.io/collector/exporter/xexporter"
 
-	"github.com/ssijbabu/azureeventhubexporter/internal/metadata"
+	"shb.biz/azureeventhubexporter/internal/metadata"
 )
 
 // NewFactory creates a factory for the Azure Event Hub exporter.

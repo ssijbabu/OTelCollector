@@ -75,7 +75,7 @@ func newExporter(config *Config, set exporter.Settings) *azureEventHubExporter {
 		return b.AddEventData(ed, nil)
 	}
 
-	meter := set.TelemetrySettings.MeterProvider.Meter("github.com/ssijbabu/azureeventhubexporter")
+	meter := set.TelemetrySettings.MeterProvider.Meter("shb.biz/azureeventhubexporter")
 	e.droppedBatches, _ = meter.Int64Counter(
 		"azureeventhub_exporter_dropped_batches",
 		metric.WithDescription("Number of telemetry batches dropped because they exceeded the Event Hub message size limit"),

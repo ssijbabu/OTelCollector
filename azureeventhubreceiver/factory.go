@@ -13,8 +13,8 @@ import (
 	"go.opentelemetry.io/collector/receiver"
 	"go.opentelemetry.io/collector/receiver/xreceiver"
 
-	"github.com/ssijbabu/azureeventhubreceiver/internal/sharedcomponent"
-	"github.com/ssijbabu/azureeventhubreceiver/internal/metadata"
+	"shb.biz/azureeventhubreceiver/internal/sharedcomponent"
+	"shb.biz/azureeventhubreceiver/internal/metadata"
 )
 
 var errUnexpectedConfigurationType = errors.New("failed to cast configuration to azure event hub config")

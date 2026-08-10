@@ -10,7 +10,7 @@ import (
 	"go.opentelemetry.io/collector/consumer/consumertest"
 	"go.opentelemetry.io/collector/receiver/receivertest"
 
-	"github.com/ssijbabu/azureeventhubreceiver/internal/metadata"
+	"shb.biz/azureeventhubreceiver/internal/metadata"
 )
 
 func Test_NewFactory(t *testing.T) {

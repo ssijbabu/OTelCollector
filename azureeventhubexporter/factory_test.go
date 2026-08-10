@@ -12,7 +12,7 @@ import (
 	"go.opentelemetry.io/collector/component/componenttest"
 	"go.opentelemetry.io/collector/exporter/exportertest"
 
-	"github.com/ssijbabu/azureeventhubexporter/internal/metadata"
+	"shb.biz/azureeventhubexporter/internal/metadata"
 )
 
 func TestNewFactory(t *testing.T) {

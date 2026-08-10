@@ -1,10 +1,11 @@
-module github.com/ssijbabu/azureeventhubexporter
+module shb.biz/azureeventhubexporter
 
 go 1.25.0
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.1
 	github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2 v2.0.2
+	github.com/IBM/sarama v1.50.3
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/batchpersignal v0.152.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/pdatautil v0.152.0
 	github.com/stretchr/testify v1.11.1
@@ -18,13 +19,14 @@ require (
 	go.opentelemetry.io/collector/exporter/exportertest v0.152.1-0.20260514231715-e7f22744c28c
 	go.opentelemetry.io/collector/exporter/xexporter v0.152.1-0.20260514231715-e7f22744c28c
 	go.opentelemetry.io/collector/pdata v1.58.1-0.20260514231715-e7f22744c28c
+	go.opentelemetry.io/otel v1.43.0
+	go.opentelemetry.io/otel/metric v1.43.0
 	go.uber.org/zap v1.28.0
 )
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.12.0 // indirect
 	github.com/Azure/go-amqp v1.5.0 // indirect
-	github.com/IBM/sarama v1.50.3 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
@@ -72,8 +74,6 @@ require (
 	go.opentelemetry.io/collector/receiver v1.58.0 // indirect
 	go.opentelemetry.io/collector/receiver/receivertest v0.152.0 // indirect
 	go.opentelemetry.io/collector/receiver/xreceiver v0.152.0 // indirect
-	go.opentelemetry.io/otel v1.43.0 // indirect
-	go.opentelemetry.io/otel/metric v1.43.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.43.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.43.0 // indirect
 	go.opentelemetry.io/otel/trace v1.43.0 // indirect

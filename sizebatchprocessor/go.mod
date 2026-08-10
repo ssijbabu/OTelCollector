@@ -1,4 +1,4 @@
-module github.com/ssijbabu/sizebatchprocessor
+module shb.biz/sizebatchprocessor
 
 go 1.25.0
 
