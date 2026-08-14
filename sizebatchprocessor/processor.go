@@ -156,7 +156,7 @@ func (b *batcher[T]) timedFlush(myGen uint64) {
 // ---------------------------------------------------------------------------
 
 func newTracesBatcher(cfg *Config, next consumer.Traces, logger *zap.Logger) *batcher[ptrace.Traces] {
-	m := &ptrace.ProtoMarshaler{}
+	m := &ptrace.JSONMarshaler{}
 	return newBatcher(
 		cfg,
 		func(ctx context.Context, batches []ptrace.Traces) error {
@@ -178,7 +178,7 @@ func newTracesBatcher(cfg *Config, next consumer.Traces, logger *zap.Logger) *ba
 }
 
 func newMetricsBatcher(cfg *Config, next consumer.Metrics, logger *zap.Logger) *batcher[pmetric.Metrics] {
-	m := &pmetric.ProtoMarshaler{}
+	m := &pmetric.JSONMarshaler{}
 	return newBatcher(
 		cfg,
 		func(ctx context.Context, batches []pmetric.Metrics) error {
@@ -200,7 +200,7 @@ func newMetricsBatcher(cfg *Config, next consumer.Metrics, logger *zap.Logger) *
 }
 
 func newLogsBatcher(cfg *Config, next consumer.Logs, logger *zap.Logger) *batcher[plog.Logs] {
-	m := &plog.ProtoMarshaler{}
+	m := &plog.JSONMarshaler{}
 	return newBatcher(
 		cfg,
 		func(ctx context.Context, batches []plog.Logs) error {

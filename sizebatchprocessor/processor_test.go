@@ -56,9 +56,9 @@ func processorSettings() processor.Settings {
 	return processortest.NewNopSettings(processorType)
 }
 
-// measureTraces returns the proto size of td.
+// measureTraces returns the JSON size of td, matching the sizeFn used by the processor.
 func measureTraces(td ptrace.Traces) int {
-	m := &ptrace.ProtoMarshaler{}
+	m := &ptrace.JSONMarshaler{}
 	b, _ := m.MarshalTraces(td)
 	return len(b)
 }
@@ -173,7 +173,7 @@ func TestTracesShutdownFlush(t *testing.T) {
 func TestMetricsFlushOnSize(t *testing.T) {
 	sink := &consumertest.MetricsSink{}
 
-	m := &pmetric.ProtoMarshaler{}
+	m := &pmetric.JSONMarshaler{}
 	b1 := makeMetrics(30)
 	s1, _ := m.MarshalMetrics(b1)
 	b2 := makeMetrics(30)
