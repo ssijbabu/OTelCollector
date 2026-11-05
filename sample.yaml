@@ -1,0 +1,50 @@
+extensions:
+  azure_auth:
+    workload_identity:
+      tenant_id: <TENANT_ID>
+      client_id: <CLIENT_ID>          # the identity's client ID (same as the service account annotation)
+      federated_token_file: /var/run/secrets/azure/tokens/azure-identity-token
+    scopes: ["https://<NAMESPACE>.servicebus.windows.net/.default"]   # required for Kafka
+
+receivers:
+  otlp:
+    protocols:
+      grpc: {endpoint: 0.0.0.0:4317}
+  kafka:
+    brokers: ["<NAMESPACE>.servicebus.windows.net:9093"]
+    tls: {insecure: false}
+    auth:
+      sasl:
+        mechanism: OAUTHBEARER
+        oauthbearer_token_source: azure_auth
+    use_leader_epoch: false            # Event Hubs doesn't fully support leader epochs
+    group_id: <CONSUMER_GROUP>
+    logs: {topics: [<EVENT_HUB_NAME>], encoding: otlp_proto}
+
+exporters:
+  kafka:
+    brokers: ["<NAMESPACE>.servicebus.windows.net:9093"]
+    tls: {insecure: false}
+    auth:
+      sasl:
+        mechanism: OAUTHBEARER
+        oauthbearer_token_source: azure_auth
+    logs: {topic: <EVENT_HUB_NAME>, encoding: otlp_proto}
+    timeout: 60s
+    producer:
+      compression: none                # Event Hubs Standard rejected lz4 and gzip in testing
+      # keep max_message_bytes at its 1000000 default; never raise it
+    sending_queue:
+      sizer: bytes
+      queue_size: 50000000             # 50 MB in-memory queue
+      batch:
+        sizer: bytes
+        min_size: 1
+        max_size: 900000               # 900 KB per message, under the 1 MB Event Hubs limit
+        flush_timeout: 1s
+
+service:
+  extensions: [azure_auth]
+  pipelines:
+    logs/out: {receivers: [otlp], exporters: [kafka]}
+    logs/in:  {receivers: [kafka], exporters: [<YOUR_EXPORTER>]}
