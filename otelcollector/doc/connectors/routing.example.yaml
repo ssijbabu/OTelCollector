@@ -1,0 +1,75 @@
+# routing connector — sends data to different pipelines based on OTTL conditions.
+#
+# Scenario: one shared gateway, but the payments team's logs must go to a separate,
+# access-restricted Elasticsearch cluster, and audit logs to their own data stream with
+# longer retention. Everything else takes the default route.
+#
+# Run:  ./otelcol --config doc/connectors/routing.example.yaml
+# Env:  ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY,
+#       PAYMENTS_ELASTICSEARCH_ENDPOINT, PAYMENTS_ELASTICSEARCH_API_KEY
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  batch: {}
+
+connectors:
+  routing:
+    default_pipelines: [logs/default]
+    error_mode: ignore
+    table:
+      # Everything from the payments namespace -> dedicated cluster.
+      - context: resource
+        condition: attributes["k8s.namespace.name"] == "payments"
+        pipelines: [logs/payments]
+      # Individual audit log records -> audit data stream.
+      - context: log
+        condition: attributes["event.category"] == "audit"
+        pipelines: [logs/audit]
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+  elasticsearch/audit:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+    logs_index: logs-audit-default
+  elasticsearch/payments:
+    endpoint: ${env:PAYMENTS_ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:PAYMENTS_ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  pipelines:
+    logs/in:
+      receivers: [otlp]
+      processors: [memory_limiter]
+      exporters: [routing]
+    logs/default:
+      receivers: [routing]
+      processors: [batch]
+      exporters: [elasticsearch]
+    logs/audit:
+      receivers: [routing]
+      processors: [batch]
+      exporters: [elasticsearch/audit]
+    logs/payments:
+      receivers: [routing]
+      processors: [batch]
+      exporters: [elasticsearch/payments]

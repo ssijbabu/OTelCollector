@@ -1,0 +1,61 @@
+# beats_encoding extension (EDOT) — decodes raw log bytes into log records shaped like
+# Elastic Beats / Elastic Agent output, including data_stream routing fields, so Elastic
+# integrations (dashboards, ingest pipelines) work on them.
+#
+# Scenario: Azure activity logs are streamed to an Event Hub (wrapped in a "records"
+# array). The kafka receiver reads them and this extension unwraps each record and routes it
+# to the azure.activitylogs data stream, matching the Elastic Azure integration.
+#
+# Run:  ./otelcol --config doc/extensions/beats_encoding.example.yaml
+# Env:  AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_FEDERATED_TOKEN_FILE, EVENTHUB_NAMESPACE,
+#       ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+
+extensions:
+  azure_auth:
+    workload_identity:
+      client_id: ${env:AZURE_CLIENT_ID}
+      tenant_id: ${env:AZURE_TENANT_ID}
+      federated_token_file: ${env:AZURE_FEDERATED_TOKEN_FILE}
+    # Required for Kafka: the Event Hubs Kafka endpoint checks the token audience.
+    scopes: ["https://${env:EVENTHUB_NAMESPACE}/.default"]
+  beats_encoding/activitylogs:
+    format: json
+    unwrap: [records]           # {"records":[{...},{...}]} -> one log per record
+    data_stream:
+      dataset: azure.activitylogs
+
+receivers:
+  kafka/activitylogs:
+    brokers: ["${env:EVENTHUB_NAMESPACE}:9093"]
+    tls:
+      insecure: false
+    auth:
+      sasl:
+        mechanism: OAUTHBEARER
+        oauthbearer_token_source: azure_auth
+    group_id: otel-activitylogs
+    logs:
+      topics: [insights-activity-logs]
+      encoding: beats_encoding/activitylogs
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  batch: {}
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: ecs             # Beats-style documents use ECS mapping
+
+service:
+  extensions: [azure_auth, beats_encoding/activitylogs]
+  pipelines:
+    logs:
+      receivers: [kafka/activitylogs]
+      processors: [memory_limiter, batch]
+      exporters: [elasticsearch]

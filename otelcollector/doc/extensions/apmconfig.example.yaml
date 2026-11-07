@@ -1,0 +1,63 @@
+# apmconfig extension (EDOT) — serves Elastic APM agent central configuration (sample
+# rate, log level, capture settings managed in Kibana) to agents over OpAMP.
+#
+# Scenario: Elastic APM / EDOT SDK agents talk to the collector instead of APM Server.
+# Settings changed in Kibana > APM > Settings > Agent configuration are read from
+# Elasticsearch and pushed to the agents through the collector on port 4320.
+#
+# Authentication to Elasticsearch uses the headers_setter extension to add the API key.
+#
+# Run:  ./otelcol --config doc/extensions/apmconfig.example.yaml
+# Env:  ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+
+extensions:
+  headers_setter/es:
+    headers:
+      - key: Authorization
+        value: ApiKey ${env:ELASTICSEARCH_API_KEY}
+        action: upsert
+
+  apmconfig:
+    source:
+      elasticsearch:
+        endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+        auth:
+          authenticator: headers_setter/es
+    opamp:
+      protocols:
+        http:
+          endpoint: 0.0.0.0:4320
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+  # Classic Elastic APM agents (APM intake protocol).
+  elasticapmintake:
+    endpoint: 0.0.0.0:8200
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  elasticapm: {}
+  batch: {}
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  extensions: [headers_setter/es, apmconfig]
+  pipelines:
+    traces:
+      receivers: [otlp, elasticapmintake]
+      processors: [memory_limiter, elasticapm, batch]
+      exporters: [elasticsearch]

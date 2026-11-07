@@ -1,0 +1,72 @@
+# resource processor — inserts, updates or deletes RESOURCE attributes, i.e. attributes
+# that describe the source of the data and apply to all of its spans/logs/metrics.
+#
+# Scenario: every signal leaving this cluster must say which cluster, region and
+# environment it came from, using OTel semantic convention names. Values come from a
+# ConfigMap via environment variables. A legacy attribute is also removed.
+#
+# insert = only if missing (keeps what the SDK set)
+# upsert = always overwrite
+#
+# Run:  ./otelcol --config doc/processors/resource.example.yaml
+# Env:  ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY, K8S_CLUSTER_NAME, CLOUD_REGION,
+#       DEPLOYMENT_ENVIRONMENT
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+
+  resource/cluster:
+    attributes:
+      - key: k8s.cluster.name
+        value: ${env:K8S_CLUSTER_NAME}
+        action: upsert
+      - key: cloud.provider
+        value: azure
+        action: upsert
+      - key: cloud.platform
+        value: azure_aks
+        action: upsert
+      - key: cloud.region
+        value: ${env:CLOUD_REGION}
+        action: upsert
+      - key: deployment.environment.name
+        value: ${env:DEPLOYMENT_ENVIRONMENT}
+        action: insert
+      # Old, non-standard attribute some services still send.
+      - key: env
+        action: delete
+
+  batch: {}
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource/cluster, batch]
+      exporters: [elasticsearch]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resource/cluster, batch]
+      exporters: [elasticsearch]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resource/cluster, batch]
+      exporters: [elasticsearch]

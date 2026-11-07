@@ -1,0 +1,49 @@
+# log_dedup processor — collapses identical log records seen within an interval into one
+# record, adding a count attribute.
+#
+# Scenario: node agent tailing container logs. A crash-looping or misconfigured pod can
+# print the same error thousands of times a minute; dedup keeps one copy per minute with
+# the number of repeats, protecting Elasticsearch from log storms.
+#
+# Kubernetes: DaemonSet with /var/log/pods mounted read-only.
+#
+# Run:  ./otelcol --config doc/processors/log_dedup.example.yaml
+# Env:  ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+
+receivers:
+  file_log:
+    include: [/var/log/pods/*/*/*.log]
+    exclude: [/var/log/pods/otel-*/*/*.log]   # don't read the collector's own logs
+    start_at: end
+    include_file_path: true
+    operators:
+      - type: container   # parse CRI/docker format and add k8s.* attributes from the path
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+
+  log_dedup:
+    interval: 60s
+    log_count_attribute: log.repeat_count
+    # Ignore fields that differ between otherwise identical lines.
+    exclude_fields:
+      - attributes.log.file.path
+
+  batch: {}
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  pipelines:
+    logs:
+      receivers: [file_log]
+      processors: [memory_limiter, log_dedup, batch]
+      exporters: [elasticsearch]

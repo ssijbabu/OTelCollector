@@ -1,0 +1,53 @@
+# otlp_json connector — turns log lines that contain OTLP JSON back into real traces,
+# metrics and logs.
+#
+# Scenario: an air-gapped or batch system writes telemetry to files as OTLP JSON (for
+# example with the file exporter or an SDK's file exporter). The files are shipped and
+# dropped into /data/otlp/. This collector tails them and re-creates the original
+# signals, then sends them to Elasticsearch as if they had arrived over OTLP.
+#
+# Each line must be one complete OTLP JSON export request.
+#
+# Run:  ./otelcol --config doc/connectors/otlp_json.example.yaml
+# Env:  ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+
+receivers:
+  file_log/otlp:
+    include: [/data/otlp/*.json]
+    start_at: beginning
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  batch: {}
+
+connectors:
+  otlp_json: {}
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  pipelines:
+    logs/raw:
+      receivers: [file_log/otlp]
+      processors: [memory_limiter]
+      exporters: [otlp_json]
+    traces:
+      receivers: [otlp_json]
+      processors: [batch]
+      exporters: [elasticsearch]
+    metrics:
+      receivers: [otlp_json]
+      processors: [batch]
+      exporters: [elasticsearch]
+    logs:
+      receivers: [otlp_json]
+      processors: [batch]
+      exporters: [elasticsearch]

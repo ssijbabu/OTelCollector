@@ -1,0 +1,59 @@
+# headers_setter extension — adds HTTP/gRPC headers to OUTGOING exporter requests, either
+# static values or values copied from the incoming request (client metadata).
+#
+# Scenario: a gateway that forwards to a multi-tenant OTLP backend. The backend needs:
+#   - a static Authorization header (the gateway's own credentials)
+#   - X-Scope-OrgID set to the tenant that originally sent the data (X-Tenant-Id header)
+#
+# Requirements: include_metadata: true on the receiver, and batch must keep the key
+# (metadata_keys), otherwise the tenant is lost before export.
+#
+# Run:  ./otelcol --config doc/extensions/headers_setter.example.yaml
+# Env:  UPSTREAM_OTLP_ENDPOINT, UPSTREAM_TOKEN
+
+extensions:
+  headers_setter:
+    headers:
+      - key: Authorization
+        value: Bearer ${env:UPSTREAM_TOKEN}
+        action: upsert
+      - key: X-Scope-OrgID
+        from_context: x-tenant-id   # copied from the incoming request
+        default_value: shared       # used when the sender didn't set it
+        action: upsert
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        include_metadata: true
+      http:
+        endpoint: 0.0.0.0:4318
+        include_metadata: true
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  batch:
+    metadata_keys: [x-tenant-id]
+
+exporters:
+  otlp_http/upstream:
+    endpoint: ${env:UPSTREAM_OTLP_ENDPOINT}
+    auth:
+      authenticator: headers_setter
+
+service:
+  extensions: [headers_setter]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp_http/upstream]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp_http/upstream]

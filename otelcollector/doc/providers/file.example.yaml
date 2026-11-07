@@ -1,0 +1,56 @@
+# file provider — loads configuration from files: the main --config file, and individual
+# values or whole sections via ${file:/path}.
+#
+# Scenario: on Kubernetes the Elasticsearch API key lives in a Secret mounted as a file
+# (not an environment variable, so it doesn't show up in `kubectl describe pod` or in
+# process listings).
+#
+#   volumes:
+#     - name: es-secret
+#       secret: {secretName: otel-elasticsearch}       # key: api-key
+#   volumeMounts:
+#     - {name: es-secret, mountPath: /var/run/secrets/elasticsearch, readOnly: true}
+#
+# Syntax:
+#   --config file:/etc/otelcol/config.yaml   (same as --config /etc/otelcol/config.yaml)
+#   ${file:/path}                            file content, parsed as YAML (a plain string
+#                                            stays a string)
+#   Several --config flags are MERGED in order, later files win:
+#     ./otelcol --config base.yaml --config overrides/prod.yaml
+#
+# Run:   ./otelcol --config doc/providers/file.example.yaml
+# Files: /var/run/secrets/elasticsearch/api-key (one line: the base64 API key)
+# Env:   ELASTICSEARCH_ENDPOINT
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  batch: {}
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${file:/var/run/secrets/elasticsearch/api-key}
+    mapping:
+      mode: otel
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [elasticsearch]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [elasticsearch]

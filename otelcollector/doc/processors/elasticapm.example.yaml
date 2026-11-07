@@ -1,0 +1,62 @@
+# elasticapm processor (EDOT) — enriches traces, logs and metrics with the fields Elastic's
+# APM UI needs (transaction/span type and name, event outcome, service metadata, ...).
+#
+# Scenario: OTel-instrumented services send traces and logs to a gateway that writes to
+# Elasticsearch, and the data must light up Kibana's APM UI (services, transactions,
+# dependencies, errors).
+#
+# The processor is normally paired with the elasticapm CONNECTOR, which produces the
+# aggregated APM metrics (latency, throughput, error rate) — see
+# doc/connectors/elasticapm.example.yaml.
+#
+# Run:  ./otelcol --config doc/processors/elasticapm.example.yaml
+# Env:  ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+
+  elasticapm:
+    # Copy host IP into the fields the APM UI shows.
+    host_ip_enabled: true
+
+  batch: {}
+
+connectors:
+  elasticapm: {}
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, elasticapm, batch]
+      exporters: [elasticapm, elasticsearch]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, elasticapm, batch]
+      exporters: [elasticapm, elasticsearch]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [elasticsearch]
+    metrics/aggregated-otel-metrics:
+      receivers: [elasticapm]
+      processors: []
+      exporters: [elasticsearch]

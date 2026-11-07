@@ -44,6 +44,8 @@ otelcollector/
 ├── components.go            # OCB-generated — registers all component factories
 ├── go.mod / go.sum          # OCB-generated module graph (with transitive pins applied)
 │
+├── doc/                     # One full example config per processor, connector, extension, provider
+│                            # (see doc/README.md)
 └── examples/
     ├── binary/
     │   └── config.yaml      # Local binary: OTLP → Elasticsearch + debug

@@ -1,0 +1,75 @@
+# azure_auth extension — gets Microsoft Entra ID tokens for Azure services. Supports
+# workload identity, managed identity, service principal (secret or certificate) and
+# DefaultAzureCredential (use_default: true).
+#
+# Scenario: AKS gateway reading telemetry from Azure Event Hubs over the Kafka protocol,
+# with NO secrets in the cluster: the pod's service account is federated with a managed
+# identity (Azure Workload Identity) that has the "Azure Event Hubs Data Receiver" role.
+#
+# Kubernetes: service account annotated with azure.workload.identity/client-id and pod
+#             label azure.workload.identity/use: "true"; the webhook injects AZURE_* vars.
+#
+# Run:  ./otelcol --config doc/extensions/azure_auth.example.yaml
+# Env:  AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_FEDERATED_TOKEN_FILE (set by the webhook),
+#       EVENTHUB_NAMESPACE (e.g. myns.servicebus.windows.net),
+#       ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+
+extensions:
+  azure_auth:
+    workload_identity:
+      client_id: ${env:AZURE_CLIENT_ID}
+      tenant_id: ${env:AZURE_TENANT_ID}
+      federated_token_file: ${env:AZURE_FEDERATED_TOKEN_FILE}
+    # Required for Kafka: the Event Hubs Kafka endpoint checks the token audience.
+    scopes: ["https://${env:EVENTHUB_NAMESPACE}/.default"]
+  # Alternatives:
+  #   managed_identity: {client_id: <id>}            # VM / AKS kubelet identity
+  #   service_principal: {tenant_id: ..., client_id: ..., client_secret: ${env:AZURE_CLIENT_SECRET}}
+  #   use_default: true                               # DefaultAzureCredential chain
+
+receivers:
+  kafka:
+    brokers: ["${env:EVENTHUB_NAMESPACE}:9093"]
+    tls:
+      insecure: false
+    auth:
+      sasl:
+        mechanism: OAUTHBEARER
+        oauthbearer_token_source: azure_auth
+    group_id: otel-gateway   # each replica in this group gets a share of the partitions
+    logs:
+      topics: [otel-logs]       # Event Hub names
+    metrics:
+      topics: [otel-metrics]
+    traces:
+      topics: [otel-traces]
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  batch: {}
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  extensions: [azure_auth]
+  pipelines:
+    logs:
+      receivers: [kafka]
+      processors: [memory_limiter, batch]
+      exporters: [elasticsearch]
+    metrics:
+      receivers: [kafka]
+      processors: [memory_limiter, batch]
+      exporters: [elasticsearch]
+    traces:
+      receivers: [kafka]
+      processors: [memory_limiter, batch]
+      exporters: [elasticsearch]

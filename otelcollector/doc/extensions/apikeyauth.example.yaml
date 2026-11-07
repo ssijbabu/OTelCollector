@@ -1,0 +1,61 @@
+# apikeyauth extension (EDOT) — authenticates INCOMING requests with Elasticsearch API keys.
+# The key sent by the client (Authorization: ApiKey <base64>) is checked against
+# Elasticsearch's _has_privileges API and the result is cached.
+#
+# Scenario: a public-facing gateway that applications and Elastic APM agents send to
+# directly. Only clients holding a valid Elasticsearch API key with the "ingest" privilege
+# for the otel application may send data; everything else gets 401.
+#
+# Run:  ./otelcol --config doc/extensions/apikeyauth.example.yaml
+# Env:  ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+# Test: curl -H "Authorization: ApiKey <key>" -H "Content-Type: application/json" \
+#         -d '{"resourceLogs":[]}' http://localhost:4318/v1/logs
+
+extensions:
+  apikeyauth:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    application_privileges:
+      - application: otel
+        privileges: [ingest]
+        resources: ["*"]
+    cache:
+      capacity: 1000
+      ttl: 5m
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        auth:
+          authenticator: apikeyauth
+      http:
+        endpoint: 0.0.0.0:4318
+        auth:
+          authenticator: apikeyauth
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  batch: {}
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  extensions: [apikeyauth]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [elasticsearch]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [elasticsearch]

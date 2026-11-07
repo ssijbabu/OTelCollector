@@ -1,0 +1,75 @@
+# span_metrics connector — builds RED metrics (Rate, Errors, Duration) from spans:
+# call counts and latency histograms per service, operation, status and chosen attributes.
+#
+# Scenario: vendor-neutral service dashboards and alerts (e.g. "p95 latency of
+# POST /orders > 500ms") computed from traces, even if most traces are later sampled
+# away. Metrics are produced BEFORE sampling, so they still count every request.
+#
+# Run:  ./otelcol --config doc/connectors/span_metrics.example.yaml
+# Env:  ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  tail_sampling:
+    decision_wait: 10s
+    policies:
+      - name: errors
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      - name: sample
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 10
+  batch: {}
+
+connectors:
+  forward: {}
+  span_metrics:
+    namespace: traces.span.metrics
+    histogram:
+      unit: ms
+      explicit:
+        buckets: [5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2.5s, 5s]
+    dimensions:
+      - name: http.request.method
+      - name: http.route
+      - name: http.response.status_code
+    exemplars:
+      enabled: true
+    metrics_flush_interval: 15s
+    aggregation_temporality: AGGREGATION_TEMPORALITY_DELTA
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  pipelines:
+    # All spans -> span_metrics (unsampled), then sample what gets stored.
+    traces/in:
+      receivers: [otlp]
+      processors: [memory_limiter]
+      exporters: [span_metrics, forward]
+    traces/store:
+      receivers: [forward]
+      processors: [tail_sampling, batch]
+      exporters: [elasticsearch]
+    metrics/red:
+      receivers: [span_metrics]
+      processors: [batch]
+      exporters: [elasticsearch]

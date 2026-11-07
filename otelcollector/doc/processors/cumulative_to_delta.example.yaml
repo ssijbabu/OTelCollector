@@ -1,0 +1,51 @@
+# cumulative_to_delta processor — converts cumulative monotonic sums and histograms
+# (running totals since process start) into delta values (change per interval).
+#
+# Scenario: services instrumented with SDKs that export cumulative temporality (the default
+# for most SDKs and anything Prometheus-style), while dashboards in Kibana are built on
+# per-interval rates. Only the HTTP and RPC request metrics are converted; everything else
+# is left untouched.
+#
+# Note: keep all data for one series on the same collector instance (state is in memory).
+#
+# Run:  ./otelcol --config doc/processors/cumulative_to_delta.example.yaml
+# Env:  ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+
+  cumulative_to_delta:
+    include:
+      match_type: regexp
+      metrics:
+        - ^http\.server\..*
+        - ^rpc\.server\..*
+    # Forget series that have not been seen for 10 minutes (bounds memory use).
+    max_staleness: 10m
+
+  batch: {}
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, cumulative_to_delta, batch]
+      exporters: [elasticsearch]

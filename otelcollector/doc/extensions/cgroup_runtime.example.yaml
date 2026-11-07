@@ -1,0 +1,53 @@
+# cgroup_runtime extension — sets Go's GOMAXPROCS and GOMEMLIMIT from the container's
+# cgroup CPU and memory limits.
+#
+# Scenario: collector pod with resources.limits cpu: 2, memory: 2Gi on a 32-core node.
+# Without this, Go would run 32 threads and its garbage collector would not know about the
+# 2Gi limit, causing CPU throttling and OOM kills. With it: GOMAXPROCS=2 and
+# GOMEMLIMIT=1.6Gi (80% of the limit).
+#
+# Run:  ./otelcol --config doc/extensions/cgroup_runtime.example.yaml
+# Env:  ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+
+extensions:
+  cgroup_runtime:
+    gomaxprocs:
+      enabled: true
+    gomemlimit:
+      enabled: true
+      ratio: 0.8              # GOMEMLIMIT = 80% of the container memory limit
+      refresh_interval: 30s   # pick up in-place pod resizes
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  batch: {}
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  extensions: [cgroup_runtime]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [elasticsearch]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [elasticsearch]
