@@ -1,0 +1,49 @@
+# pprof extension — exposes Go's pprof endpoint so you can profile the collector itself
+# (CPU, heap, goroutines, mutex/block contention).
+#
+# Scenario: a gateway uses more CPU or memory than expected. Port-forward to the pod and
+# capture a profile:
+#   kubectl port-forward pod/<gateway-pod> 1777:1777
+#   go tool pprof http://localhost:1777/debug/pprof/heap
+#   go tool pprof http://localhost:1777/debug/pprof/profile?seconds=30
+#
+# Security: bind to localhost only; never expose pprof outside the pod.
+#
+# Run:  ./otelcol --config doc/extensions/pprof.example.yaml
+# Env:  ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+
+extensions:
+  pprof:
+    endpoint: localhost:1777
+    block_profile_fraction: 0     # set >0 temporarily to investigate blocking
+    mutex_profile_fraction: 0     # set >0 temporarily to investigate lock contention
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  batch: {}
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  extensions: [pprof]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [elasticsearch]

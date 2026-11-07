@@ -1,0 +1,54 @@
+# k8s_observer extension — watches the Kubernetes API for pods, ports, nodes, services and
+# ingresses. Used together with receiver_creator, which starts a receiver for every
+# matching endpoint found and stops it when the endpoint disappears.
+#
+# Scenario: a single Deployment that collects kubelet stats from EVERY node, without a
+# DaemonSet: the observer reports each node, and receiver_creator starts one
+# kubelet_stats receiver per node using the node's address and kubelet port.
+#
+# Kubernetes: RBAC list/watch on nodes; get on nodes/stats and nodes/proxy.
+#
+# Run:  ./otelcol --config doc/extensions/k8s_observer.example.yaml
+# Env:  ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+
+extensions:
+  k8s_observer:
+    auth_type: serviceAccount
+    observe_pods: false
+    observe_nodes: true
+
+receivers:
+  receiver_creator:
+    watch_observers: [k8s_observer]
+    receivers:
+      kubelet_stats:
+        # backtick expressions are evaluated per discovered endpoint
+        rule: type == "k8s.node"
+        config:
+          auth_type: serviceAccount
+          endpoint: "`endpoint`:`kubelet_endpoint_port`"
+          insecure_skip_verify: true
+          collection_interval: 30s
+          metric_groups: [node, pod]
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  batch: {}
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  extensions: [k8s_observer]
+  pipelines:
+    metrics:
+      receivers: [receiver_creator]
+      processors: [memory_limiter, batch]
+      exporters: [elasticsearch]

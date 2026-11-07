@@ -1,0 +1,49 @@
+# memory_limiter extension — the memory limiter used as a receiver MIDDLEWARE. It refuses
+# requests at the HTTP/gRPC layer, before the payload is even decoded, which protects
+# memory better than the memory_limiter processor (which only sees already-decoded data).
+#
+# Scenario: internet-facing OTLP gateway that sometimes receives huge bursts. Requests are
+# rejected with 429 / RESOURCE_EXHAUSTED as soon as memory is high, so clients back off.
+#
+# Run:  ./otelcol --config doc/extensions/memory_limiter.example.yaml
+# Env:  ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+
+extensions:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        middlewares:
+          - id: memory_limiter
+      http:
+        endpoint: 0.0.0.0:4318
+        middlewares:
+          - id: memory_limiter
+
+processors:
+  batch: {}
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  extensions: [memory_limiter]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [elasticsearch]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [elasticsearch]

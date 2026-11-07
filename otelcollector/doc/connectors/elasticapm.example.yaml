@@ -1,0 +1,59 @@
+# elasticapm connector (EDOT) — reads traces and logs and produces the aggregated APM
+# metrics Kibana's APM UI is built on: transaction/span latency histograms, throughput,
+# error rate and service summaries, aggregated over 1m, 10m and 60m windows.
+#
+# Scenario: gateway writing OTel traces and logs to Elasticsearch. Without this connector
+# Kibana APM shows individual traces but no service-level charts.
+#
+# How a connector is wired: it is an EXPORTER in the traces/logs pipelines and a RECEIVER
+# in a metrics pipeline. Pair it with the elasticapm processor.
+#
+# Run:  ./otelcol --config doc/connectors/elasticapm.example.yaml
+# Env:  ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  elasticapm: {}
+  batch: {}
+
+connectors:
+  elasticapm:
+    # Extra span attributes to keep as dimensions on the aggregated metrics.
+    custom_span_attributes: [http.route]
+    # Aggregation runs over 1m, 10m and 60m windows (defaults; Elastic says not to change
+    # them outside testing). State is kept in memory unless a directory is set:
+    # aggregation:
+    #   directory: /var/lib/otelcol/apm
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, elasticapm, batch]
+      exporters: [elasticapm, elasticsearch]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, elasticapm, batch]
+      exporters: [elasticapm, elasticsearch]
+    metrics/aggregated-otel-metrics:
+      receivers: [elasticapm]
+      processors: []
+      exporters: [elasticsearch]

@@ -1,0 +1,66 @@
+# healthcheckv2 extension — newer health check that reports the status of every pipeline
+# and component, over HTTP and gRPC (grpc.health.v1).
+#
+# Scenario: you want readiness to fail when the Elasticsearch exporter keeps failing (not
+# just when the process is down), and a JSON status page for troubleshooting which
+# component is unhealthy.
+#
+#   GET :13133/status            overall + per-pipeline/component status (JSON)
+#   GET :13133/status?pipeline=traces
+#   GET :13133/config            the running configuration (redacted)
+#   gRPC :13132                  grpc.health.v1 for gRPC-aware load balancers
+#
+# Run:  ./otelcol --config doc/extensions/healthcheckv2.example.yaml
+# Env:  ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+
+extensions:
+  healthcheckv2:
+    use_v2: true
+    component_health:
+      include_permanent_errors: true
+      include_recoverable_errors: true
+      recovery_duration: 5m     # recoverable errors turn unhealthy after 5 minutes
+    http:
+      endpoint: 0.0.0.0:13133
+      status:
+        enabled: true
+        path: /status
+      config:
+        enabled: true
+        path: /config
+    grpc:
+      endpoint: 0.0.0.0:13132
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  batch: {}
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  extensions: [healthcheckv2]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [elasticsearch]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [elasticsearch]

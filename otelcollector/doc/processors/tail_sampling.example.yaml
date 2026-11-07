@@ -1,0 +1,68 @@
+# tail_sampling processor — waits for complete traces, then keeps or drops each WHOLE trace
+# based on policies (errors, latency, attributes, probability, ...).
+#
+# Scenario: high-traffic services where storing every trace is too expensive. Keep:
+#   - every trace with an error
+#   - every trace slower than 1s
+#   - every trace of the checkout service
+#   - 5% of everything else
+#
+# IMPORTANT: all spans of a trace must reach the SAME collector instance. With several
+# gateway replicas, put a load_balancing exporter (routing_key: traceID) in front, or run a
+# single sampling instance.
+#
+# Run:  ./otelcol --config doc/processors/tail_sampling.example.yaml
+# Env:  ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+
+  tail_sampling:
+    decision_wait: 10s        # how long to wait for late spans of a trace
+    num_traces: 100000        # traces kept in memory while waiting
+    expected_new_traces_per_sec: 2000
+    policies:
+      - name: keep-errors
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      - name: keep-slow
+        type: latency
+        latency:
+          threshold_ms: 1000
+      - name: keep-checkout
+        type: string_attribute
+        string_attribute:
+          key: service.name
+          values: [checkout]
+      - name: sample-rest
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 5
+
+  batch: {}
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, tail_sampling, batch]
+      exporters: [elasticsearch]

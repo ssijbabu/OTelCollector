@@ -1,0 +1,64 @@
+# filter processor — drops spans, span events, log records or metrics that match OTTL
+# conditions. Anything that matches ANY condition is dropped.
+#
+# Conditions use context prefixes (span., spanevent., log., metric., datapoint., resource.);
+# this is the documented style since v0.146 (the older traces.span / logs.log_record keys
+# still work).
+#
+# Scenario: cut storage cost in Elasticsearch by dropping data nobody looks at:
+#   - Kubernetes liveness/readiness probe spans
+#   - DEBUG/TRACE logs from production
+#   - noisy runtime metrics that are not on any dashboard
+#
+# Run:  ./otelcol --config doc/processors/filter.example.yaml
+# Env:  ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+
+  filter/noise:
+    # ignore = log OTTL errors and keep the data, instead of failing the request
+    error_mode: ignore
+    trace_conditions:
+      - span.attributes["url.path"] == "/healthz"
+      - span.attributes["url.path"] == "/readyz"
+      - IsMatch(span.attributes["user_agent.original"], "kube-probe/.*")
+    log_conditions:
+      - log.severity_number < SEVERITY_NUMBER_INFO and resource.attributes["deployment.environment.name"] == "production"
+    metric_conditions:
+      - IsMatch(metric.name, "^process\\.runtime\\.jvm\\.buffer\\..*")
+
+  batch: {}
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, filter/noise, batch]
+      exporters: [elasticsearch]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, filter/noise, batch]
+      exporters: [elasticsearch]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, filter/noise, batch]
+      exporters: [elasticsearch]

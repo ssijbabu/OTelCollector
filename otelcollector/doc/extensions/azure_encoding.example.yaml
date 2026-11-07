@@ -1,0 +1,64 @@
+# azure_encoding extension — decodes Azure's native diagnostic formats (resource logs,
+# activity logs, platform metrics) into OpenTelemetry logs and metrics.
+#
+# Scenario: Azure resources (Key Vault, App Gateway, AKS control plane, ...) export
+# diagnostic settings to an Event Hub. Those messages are Azure JSON, not OTLP. The kafka
+# receiver reads them and this extension turns them into proper OTel log records, which are
+# then stored in Elasticsearch.
+#
+# Run:  ./otelcol --config doc/extensions/azure_encoding.example.yaml
+# Env:  AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_FEDERATED_TOKEN_FILE, EVENTHUB_NAMESPACE,
+#       ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+
+extensions:
+  azure_auth:
+    workload_identity:
+      client_id: ${env:AZURE_CLIENT_ID}
+      tenant_id: ${env:AZURE_TENANT_ID}
+      federated_token_file: ${env:AZURE_FEDERATED_TOKEN_FILE}
+    # Required for Kafka: the Event Hubs Kafka endpoint checks the token audience.
+    scopes: ["https://${env:EVENTHUB_NAMESPACE}/.default"]
+  azure_encoding: {}
+
+receivers:
+  kafka/azure-diagnostics:
+    brokers: ["${env:EVENTHUB_NAMESPACE}:9093"]
+    tls:
+      insecure: false
+    auth:
+      sasl:
+        mechanism: OAUTHBEARER
+        oauthbearer_token_source: azure_auth
+    group_id: otel-azure-diagnostics
+    logs:
+      topics: [insights-logs]        # Event Hub that diagnostic settings write to
+      encoding: azure_encoding
+    metrics:
+      topics: [insights-metrics]
+      encoding: azure_encoding
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  batch: {}
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  extensions: [azure_auth, azure_encoding]
+  pipelines:
+    logs:
+      receivers: [kafka/azure-diagnostics]
+      processors: [memory_limiter, batch]
+      exporters: [elasticsearch]
+    metrics:
+      receivers: [kafka/azure-diagnostics]
+      processors: [memory_limiter, batch]
+      exporters: [elasticsearch]

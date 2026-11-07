@@ -1,0 +1,49 @@
+# yaml provider — accepts configuration written inline on the command line with the
+# "yaml:" scheme. "::" separates levels of the path. Each yaml: --config is merged on top of
+# the previous ones, so it is ideal for small one-off overrides.
+#
+# Scenario: production uses this file unchanged. During an incident you want, on one pod,
+# debug logging for the collector itself plus a debug exporter on the traces pipeline —
+# without editing or redeploying the ConfigMap:
+#
+#   ./otelcol --config doc/providers/yaml.example.yaml \
+#     --config "yaml:service::telemetry::logs::level: debug" \
+#     --config "yaml:exporters::debug::verbosity: detailed" \
+#     --config "yaml:service::pipelines::traces::exporters: [elasticsearch, debug]"
+#
+# Kubernetes: add the extra --config args to the container's args (kubectl edit / patch).
+#
+# Run:  ./otelcol --config doc/providers/yaml.example.yaml
+# Env:  ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  batch: {}
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  telemetry:
+    logs:
+      level: info
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [elasticsearch]

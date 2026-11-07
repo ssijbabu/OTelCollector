@@ -1,0 +1,63 @@
+# batch processor — groups spans, logs and data points into batches before export.
+#
+# Scenario: high-volume gateway in front of Elasticsearch. Larger batches mean fewer bulk
+# requests and much less load on Elasticsearch. Batches are also split per tenant
+# (X-Tenant-Id header), so one bulk request never mixes tenants.
+#
+# Rules of thumb:
+#   - place batch near the END of the pipeline (after filtering/enrichment)
+#   - send_batch_size is the trigger, send_batch_max_size the hard cap per request
+#   - metadata_keys needs include_metadata: true on the receiver
+#
+# Run:  ./otelcol --config doc/processors/batch.example.yaml
+# Env:  ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        include_metadata: true
+      http:
+        endpoint: 0.0.0.0:4318
+        include_metadata: true
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+
+  batch:
+    send_batch_size: 8192        # flush when this many items are queued...
+    send_batch_max_size: 10000   # ...never send more than this in one request
+    timeout: 5s                  # ...or after 5s, whichever comes first
+    metadata_keys: [x-tenant-id] # one independent batcher per tenant
+    metadata_cardinality_limit: 100
+
+  # Metrics are small and frequent: flush faster so dashboards stay fresh.
+  batch/metrics:
+    send_batch_size: 2048
+    timeout: 1s
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [elasticsearch]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [elasticsearch]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch/metrics]
+      exporters: [elasticsearch]

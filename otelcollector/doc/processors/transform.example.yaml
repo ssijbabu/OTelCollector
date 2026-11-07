@@ -1,0 +1,65 @@
+# transform processor — modifies data with OTTL statements: set, delete, rename, truncate,
+# parse JSON, change metric types and much more. Statements use context prefixes
+# (span., log., metric., resource., ...) so the processor infers where to run them.
+#
+# Scenario: clean up data from many teams before it reaches Elasticsearch:
+#   - logs: parse JSON bodies into attributes and derive severity from a "level" field
+#   - traces: shorten very long SQL statements and normalise span names
+#   - metrics: rename a legacy metric to the semantic-convention name
+#
+# Run:  ./otelcol --config doc/processors/transform.example.yaml
+# Env:  ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+
+  transform:
+    error_mode: ignore
+    log_statements:
+      # {"level":"warn","msg":"disk almost full","disk":"/data"} -> log attributes
+      - merge_maps(log.attributes, ParseJSON(log.body), "upsert") where IsMatch(log.body, "^\\{")
+      - set(log.severity_text, "WARN") where log.attributes["level"] == "warn"
+      - set(log.severity_number, SEVERITY_NUMBER_WARN) where log.attributes["level"] == "warn"
+      - set(log.severity_text, "ERROR") where log.attributes["level"] == "error"
+      - set(log.severity_number, SEVERITY_NUMBER_ERROR) where log.attributes["level"] == "error"
+    trace_statements:
+      - truncate_all(span.attributes, 4096)
+      # GET /orders/12345 -> GET /orders/{id}
+      - replace_pattern(span.name, "/[0-9]+", "/{id}")
+    metric_statements:
+      - set(metric.name, "http.server.request.duration") where metric.name == "http_request_duration_seconds"
+
+  batch: {}
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, transform, batch]
+      exporters: [elasticsearch]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, transform, batch]
+      exporters: [elasticsearch]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, transform, batch]
+      exporters: [elasticsearch]

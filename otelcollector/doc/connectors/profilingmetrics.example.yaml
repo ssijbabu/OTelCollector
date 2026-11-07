@@ -1,0 +1,53 @@
+# profilingmetrics connector (EDOT) — turns continuous-profiling data (stack-trace samples)
+# into metrics, such as CPU samples per runtime (Go, JVM, Python, .NET, native, kernel).
+#
+# Scenario: services send OTLP profiles. Keeping every raw profile is expensive; the
+# metrics give cheap, long-retention CPU-usage-by-runtime charts in Kibana, while the raw
+# profiles go to Elasticsearch too.
+#
+# Profiles are still experimental in OpenTelemetry. Start the collector with the feature
+# gate:   ./otelcol --feature-gates=service.profilesSupport --config ...
+#
+# Run:  ./otelcol --feature-gates=service.profilesSupport \
+#         --config doc/connectors/profilingmetrics.example.yaml
+# Env:  ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  batch: {}
+
+connectors:
+  profilingmetrics:
+    flush_interval: 30s     # aggregate in memory for 30s before emitting metrics
+    metrics:
+      samples.frame_type:   # extra breakdown, off by default
+        enabled: true
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  pipelines:
+    profiles:
+      receivers: [otlp]
+      processors: [memory_limiter]
+      exporters: [profilingmetrics, elasticsearch]
+    metrics/profiling:
+      receivers: [profilingmetrics]
+      processors: [batch]
+      exporters: [elasticsearch]

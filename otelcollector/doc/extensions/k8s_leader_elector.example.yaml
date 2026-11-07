@@ -1,0 +1,52 @@
+# k8s_leader_elector extension — elects one leader among collector replicas using a
+# Kubernetes Lease, so cluster-wide receivers run in exactly one pod at a time.
+#
+# Scenario: the k8s_cluster receiver reports cluster-wide state (deployments, nodes, pod
+# phases). Running it in every replica would duplicate every metric. With 2 replicas for
+# high availability, only the current leader runs it; if that pod dies the other takes over
+# within ~15s.
+#
+# Kubernetes: RBAC get/create/update on leases (coordination.k8s.io) in K8S_NAMESPACE,
+#             plus the read permissions k8s_cluster needs.
+#
+# Run:  ./otelcol --config doc/extensions/k8s_leader_elector.example.yaml
+# Env:  K8S_NAMESPACE, ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+
+extensions:
+  k8s_leader_elector:
+    auth_type: serviceAccount
+    lease_name: otel-cluster-receiver
+    lease_namespace: ${env:K8S_NAMESPACE}
+    lease_duration: 15s
+    renew_deadline: 10s
+    retry_period: 2s
+
+receivers:
+  k8s_cluster:
+    auth_type: serviceAccount
+    k8s_leader_elector: k8s_leader_elector   # only runs on the leader
+    collection_interval: 30s
+    node_conditions_to_report: [Ready, MemoryPressure, DiskPressure]
+    allocatable_types_to_report: [cpu, memory]
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  batch: {}
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  extensions: [k8s_leader_elector]
+  pipelines:
+    metrics:
+      receivers: [k8s_cluster]
+      processors: [memory_limiter, batch]
+      exporters: [elasticsearch]

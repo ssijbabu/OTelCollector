@@ -1,0 +1,54 @@
+# ratelimit processor (EDOT) — limits how much data flows from receivers to exporters,
+# per client, using an in-memory token bucket.
+#
+# Scenario: multi-tenant gateway. Each tenant (X-Tenant-Id header) gets its own budget, so
+# one noisy tenant cannot overload Elasticsearch for everyone. Requests over the limit are
+# rejected and the sender retries later.
+#
+# Requirements: include_metadata: true on the receiver for metadata_keys to work.
+#
+# Run:  ./otelcol --config doc/processors/ratelimit.example.yaml
+# Env:  ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        include_metadata: true
+      http:
+        endpoint: 0.0.0.0:4318
+        include_metadata: true
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+
+  ratelimit:
+    metadata_keys: [x-tenant-id]   # one bucket per tenant
+    strategy: requests             # count requests (alternatives: records, bytes)
+    rate: 500                      # sustained requests per second per tenant
+    burst: 2000                    # short bursts allowed above the rate
+
+  batch:
+    metadata_keys: [x-tenant-id]
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, ratelimit, batch]
+      exporters: [elasticsearch]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, ratelimit, batch]
+      exporters: [elasticsearch]

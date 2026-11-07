@@ -1,0 +1,65 @@
+# forward connector — passes data unchanged from one pipeline to another.
+#
+# Scenario: logs arrive from two very different sources that need their OWN processing
+# first, then share the same enrichment and export path:
+#   - container logs tailed from the node (need parsing)
+#   - application logs sent over OTLP (already structured, but noisy)
+# Both are forwarded into one "logs/export" pipeline, so enrichment, batching and the
+# Elasticsearch settings exist in exactly one place.
+#
+# Run:  ./otelcol --config doc/connectors/forward.example.yaml
+# Env:  ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY, K8S_CLUSTER_NAME
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+  file_log:
+    include: [/var/log/pods/*/*/*.log]
+    start_at: end
+    operators:
+      - type: container
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  filter/drop-debug:
+    error_mode: ignore
+    log_conditions:
+      - log.severity_number < SEVERITY_NUMBER_INFO
+  resource/cluster:
+    attributes:
+      - key: k8s.cluster.name
+        value: ${env:K8S_CLUSTER_NAME}
+        action: upsert
+  batch: {}
+
+connectors:
+  forward: {}
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  pipelines:
+    logs/containers:
+      receivers: [file_log]
+      processors: [memory_limiter]
+      exporters: [forward]
+    logs/apps:
+      receivers: [otlp]
+      processors: [memory_limiter, filter/drop-debug]
+      exporters: [forward]
+    logs/export:
+      receivers: [forward]
+      processors: [resource/cluster, batch]
+      exporters: [elasticsearch]

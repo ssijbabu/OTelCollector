@@ -1,0 +1,51 @@
+# health_check extension — HTTP endpoint that reports whether the collector is up, for
+# Kubernetes liveness/readiness probes and load balancers.
+#
+# Scenario: collector Deployment behind a Service. Kubernetes probes GET :13133/health;
+# the pod only receives traffic once all pipelines have started.
+#
+# Kubernetes probe:
+#   livenessProbe:  {httpGet: {path: /health, port: 13133}}
+#   readinessProbe: {httpGet: {path: /health, port: 13133}}
+#
+# Run:  ./otelcol --config doc/extensions/health_check.example.yaml
+#       curl -i http://localhost:13133/health
+# Env:  ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+    path: /health
+    response_body:
+      healthy: OK
+      unhealthy: NOT READY
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  batch: {}
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [elasticsearch]

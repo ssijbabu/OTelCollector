@@ -1,18 +1,10 @@
 # OTelCollector
 
-A custom OpenTelemetry Collector built on the [Elastic Distribution of OpenTelemetry (EDOT) Collector](https://www.elastic.co/docs/reference/edot-collector/custom-collector), extended with Azure Event Hub ingestion and export.
+A custom build of the [Elastic Distribution of OpenTelemetry (EDOT) Collector](https://www.elastic.co/docs/reference/edot-collector/custom-collector), produced with the [OpenTelemetry Collector Builder (OCB)](https://opentelemetry.io/docs/collector/extend/ocb/).
 
-Compatible with OTel Collector **v1.58.0** / contrib **v0.152.0** / EDOT components **v0.50.0**.
+Built on OTel Collector core **v1.70.0 / v0.164.0**, contrib **v0.164.1**, and EDOT components **v0.78–v0.79** — the same versions Elastic's `main` branch uses for EDOT. (Contrib v0.165.0 is out, but the EDOT components have not moved to it yet; mixing them breaks the build.)
 
-## What's included
-
-The full EDOT component set plus two Azure-specific additions from this repo:
-
-| Component | Type | Purpose |
-|---|---|---|
-| `azure_event_hub` | Receiver | Ingests telemetry from Azure Event Hub (AMQP or Kafka protocol) |
-| `azure_event_hub` | Exporter | Forwards telemetry to Azure Event Hub (AMQP or Kafka protocol) |
-| `azure_auth` | Extension | Azure AD authentication — managed identity, workload identity, service principal |
+The default build (`manifest.yaml`) is aimed at **Azure Event Hubs (Kafka) → Elasticsearch / OpenSearch** on Kubernetes: the Kafka, Elastic/EDOT, OpenSearch and Kubernetes components plus common processors, connectors and extensions. See [Component inventory](#component-inventory). Two other manifests are kept for reference only — see [Manifests](#manifests).
 
 ---
 
@@ -20,16 +12,16 @@ The full EDOT component set plus two Azure-specific additions from this repo:
 
 | Tool | Version | Notes |
 |---|---|---|
-| [Go](https://go.dev/dl/) | 1.26+ | Required for local binary builds |
+| [Go](https://go.dev/dl/) | 1.27+ | Required for local binary builds |
 | [Docker](https://docs.docker.com/get-docker/) | 24+ with BuildKit | Required for container builds |
-| [OCB](https://opentelemetry.io/docs/collector/extend/ocb/) | 0.152.0 | Required only to regenerate sources from `manifest.yaml` |
+| [OCB](https://opentelemetry.io/docs/collector/extend/ocb/) | 0.164.0 | Required only to regenerate sources from `manifest.yaml` |
 
 Install OCB:
 
 ```sh
 make install-ocb
 # or directly:
-go install go.opentelemetry.io/collector/cmd/builder@v0.152.0
+go install go.opentelemetry.io/collector/cmd/builder@v0.164.0
 ```
 
 ---
@@ -38,8 +30,10 @@ go install go.opentelemetry.io/collector/cmd/builder@v0.152.0
 
 ```
 otelcollector/
-├── manifest.yaml            # OCB component manifest — source of truth for included components
-├── collector-config.yaml    # Default runtime configuration
+├── manifest.yaml            # OCB manifest used by make, Docker and the pipeline (Event Hubs/Kafka → Elasticsearch)
+├── manifest-old.yaml        # Previous broad EDOT component set (reference only)
+├── manifest-core.yaml       # Core-only component list (reference only)
+├── collector-config.yaml    # Default runtime configuration (baked into the image)
 ├── Dockerfile               # Three-stage build: OCB → static binary → distroless image
 ├── Makefile                 # Build, run, and test targets
 ├── azure-pipelines.yml      # Azure DevOps CI/CD pipeline
@@ -50,27 +44,15 @@ otelcollector/
 ├── components.go            # OCB-generated — registers all component factories
 ├── go.mod / go.sum          # OCB-generated module graph (with transitive pins applied)
 │
+├── doc/                     # One full example config per processor, connector, extension, provider
+│                            # (see doc/README.md)
 └── examples/
     ├── binary/
-    │   └── config.yaml      # Minimal config for local binary testing (Kafka, SAS key)
+    │   └── config.yaml      # Local binary: OTLP → Elasticsearch + debug
     └── k8s/
-        ├── cluster-info.yaml        # Shared cluster metadata ConfigMap
-        ├── collector/               # DaemonSet deployment (one pod per node)
-        │   ├── namespace.yaml
-        │   ├── serviceaccount.yaml
-        │   ├── configmap.yaml
-        │   ├── env-configmap.yaml
-        │   ├── deployment.yaml      # Kind: DaemonSet
-        │   ├── service.yaml
-        │   └── pdb.yaml
-        └── gateway/                 # Deployment (2 replicas, HA)
-            ├── namespace.yaml
-            ├── serviceaccount.yaml
-            ├── configmap.yaml
-            ├── env-configmap.yaml
-            ├── deployment.yaml      # Kind: Deployment, replicas: 2
-            ├── service.yaml
-            └── pdb.yaml
+        ├── collector/       # Agent DaemonSet: OTLP from workloads → gateway
+        ├── gateway/         # Gateway Deployment: OTLP from agents → Elasticsearch
+        └── telemetrygen/    # Job that sends test logs, metrics, and traces to the agent
 ```
 
 The OCB-generated files (`main.go`, `components.go`, `go.mod`, `go.sum`) are committed so the binary can be built with plain `go build` without installing OCB.
@@ -79,74 +61,46 @@ The OCB-generated files (`main.go`, `components.go`, `go.mod`, `go.sum`) are com
 
 ## Quick start — local binary
 
-### 1. Build
+All commands run from the `otelcollector/` directory.
 
 ```sh
-make build
-# Produces ./OTelCollector
-```
-
-### 2. Set environment variables
-
-```sh
-export EVENTHUB_NAMESPACE=myns.servicebus.windows.net
-export EVENTHUB_NAME=otel-telemetry
-export EVENTHUB_SAS_KEY_NAME=RootManageSharedAccessKey
-export EVENTHUB_SAS_KEY=<key-value>
-```
-
-### 3. Run
-
-```sh
-make run
-# or directly:
-./OTelCollector --config collector-config.yaml
+make build          # produces ./otelcol
+make run            # runs with collector-config.yaml (OTLP in, debug out)
 ```
 
 Health check: `curl http://localhost:13133/`
 
-### 4. Send test data
+Send test data from another terminal:
 
 ```sh
-# Install telemetrygen once
-make install-telemetrygen
-
-# Send logs, metrics, and traces
-make send-logs
-make send-metrics
-make send-traces
+make install-telemetrygen   # once
+make send-all               # or send-logs / send-metrics / send-traces
 ```
 
 ---
 
 ## Docker build and run
 
-The Docker build context must be the **repo root** so the local receiver and exporter source folders are accessible to the build:
+The Dockerfile runs OCB inside the build, so the generated files are always fresh. The build context is the **repo root**:
 
 ```sh
 # From the repo root:
-docker build -f otelcollector/Dockerfile -t otelcollector:latest .
+docker build -f otelcollector/Dockerfile --build-arg BINARY_NAME=otelcol -t otelcol:latest .
+
+docker run --rm -p 4317:4317 -p 4318:4318 -p 13133:13133 otelcol:latest
 ```
 
-Run the image:
-
-```sh
-docker run --rm \
-  -e EVENTHUB_NAMESPACE="myns.servicebus.windows.net" \
-  -e EVENTHUB_NAME="otel-telemetry" \
-  -e EVENTHUB_SAS_KEY_NAME="RootManageSharedAccessKey" \
-  -e EVENTHUB_SAS_KEY="<key-value>" \
-  -p 4317:4317 \
-  -p 4318:4318 \
-  -p 13133:13133 \
-  otelcollector:latest
-```
-
-Or with the Makefile (from the `otelcollector/` directory):
+Or from `otelcollector/`:
 
 ```sh
 make docker-build
 make docker-run
+```
+
+The image runs `collector-config.yaml` by default. Mount your own config to override it:
+
+```sh
+docker run --rm -v "$PWD/my-config.yaml:/etc/otelcol/config.yaml:ro" -p 4317:4317 otelcol:latest
 ```
 
 | Port | Protocol | Purpose |
@@ -157,338 +111,121 @@ make docker-run
 
 ---
 
-## Configuration
+## Default configuration
 
-### Environment variables
-
-All four are required when using SAS key authentication:
-
-| Variable | Example | Description |
-|---|---|---|
-| `EVENTHUB_NAMESPACE` | `myns.servicebus.windows.net` | Fully qualified Event Hubs namespace |
-| `EVENTHUB_NAME` | `otel-telemetry` | Event Hub name |
-| `EVENTHUB_SAS_KEY_NAME` | `RootManageSharedAccessKey` | SAS policy name |
-| `EVENTHUB_SAS_KEY` | `abc123==` | SAS key value |
-
-### Default pipeline
-
-`collector-config.yaml` sets up the following pipeline:
+`collector-config.yaml` sets up:
 
 ```
-OTLP gRPC/HTTP (ports 4317/4318)
+OTLP gRPC/HTTP (4317/4318)
         ↓
-memory_limiter → resourcedetection → batch
+memory_limiter → resource_detection → batch
         ↓
-debug exporter + azure_event_hub exporter (AMQP)
+debug exporter
 ```
 
-### Choosing a protocol
-
-The exporter and receiver both support AMQP (default) and Kafka. Switch by setting `protocol:`:
-
-```yaml
-exporters:
-  azure_event_hub:
-    protocol: kafka          # or "amqp"
-    event_hub:
-      namespace: ${env:EVENTHUB_NAMESPACE}
-      name: ${env:EVENTHUB_NAME}
-      shared_access_key_name: ${env:EVENTHUB_SAS_KEY_NAME}
-      shared_access_key: ${env:EVENTHUB_SAS_KEY}
-```
-
-The Kafka endpoint (`<namespace>:9093`, TLS + SASL/PLAIN) is derived automatically from `event_hub.namespace`. No extra configuration is required.
-
-**When to use Kafka:**
-- Consumer group offset tracking is built in — the receiver resumes from its last committed offset after a restart without needing a storage extension.
-- Multiple independent consumer groups can each read the full stream (e.g. the collector uses `$Default`, the gateway uses `otel-gateway`, a local binary uses `binary-test`).
-
-**When to use AMQP:**
-- Native Azure Event Hub protocol — lower overhead for simple send/receive.
-- Supports per-partition targeting (`partition:`) and distributed coordination via `blob_checkpoint_store`.
-
-### Using Azure AD authentication (no SAS key)
-
-Replace the SAS key fields with an `auth:` reference and configure the `azure_auth` extension. The protocol choice determines which OAuth scope is used — this is handled automatically by the exporter and receiver, not by the extension config.
-
-#### OAuth scopes by protocol
-
-| Protocol | OAuth scope used | Why |
-|---|---|---|
-| **AMQP** | `https://eventhubs.azure.net/.default` | Standard Azure Event Hubs resource URI; used by the `azeventhubs` SDK for all AMQP connections |
-| **Kafka** | `https://<namespace>.servicebus.windows.net/.default` | The Kafka endpoint validates the token's `aud` claim against the namespace hostname — the generic `eventhubs.azure.net` audience causes a **"Invalid tenant name 'eventhubs'"** SASL auth error |
-
-The scope is set internally by the exporter and receiver based on the configured namespace. You do not need to set `scopes:` in the `azure_auth` extension for Event Hub auth.
-
-#### Kafka (SASL/OAUTHBEARER)
-
-```yaml
-extensions:
-  azure_auth:
-    use_default: true          # or managed_identity / workload_identity / service_principal
-
-exporters:
-  azure_event_hub:
-    protocol: kafka
-    auth: azure_auth
-    event_hub:
-      namespace: myns.servicebus.windows.net   # scope becomes https://myns.servicebus.windows.net/.default
-      name: otel-telemetry
-
-receivers:
-  azure_event_hub:
-    protocol: kafka
-    group: otel-collector
-    auth: azure_auth
-    event_hub:
-      namespace: myns.servicebus.windows.net
-      name: otel-telemetry
-
-service:
-  extensions: [health_check, azure_auth]
-```
-
-#### AMQP
-
-```yaml
-extensions:
-  azure_auth:
-    use_default: true
-
-exporters:
-  azure_event_hub:
-    protocol: amqp
-    auth: azure_auth
-    event_hub:
-      namespace: myns.servicebus.windows.net   # scope becomes https://eventhubs.azure.net/.default
-      name: otel-telemetry
-
-receivers:
-  azure_event_hub:
-    protocol: amqp
-    auth: azure_auth
-    event_hub:
-      namespace: myns.servicebus.windows.net
-      name: otel-telemetry
-
-service:
-  extensions: [health_check, azure_auth]
-```
-
-#### Authentication methods
-
-The `azure_auth` extension supports four methods — use whichever matches your environment:
-
-```yaml
-# Workload Identity via DefaultAzureCredential (AKS — no secret material in the cluster)
-# Relies on AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_FEDERATED_TOKEN_FILE being injected
-# by the Azure Workload Identity webhook. Simpler but opaque — credential type is inferred at runtime.
-azure_auth:
-  use_default: true
-
-# Explicit Workload Identity — same webhook-injected token file, but config is self-describing.
-# Prefer this when you want the credential type visible in the config rather than inferred.
-# The token file path is fixed; the webhook always writes to this location.
-azure_auth:
-  workload_identity:
-    tenant_id: <tenant-id>
-    client_id: <client-id>
-    federated_token_file: /var/run/secrets/azure/tokens/azure-identity-token
-
-# Managed Identity
-azure_auth:
-  managed_identity:
-    client_id: <client-id>   # omit for system-assigned
-
-# Service Principal — client secret
-azure_auth:
-  service_principal:
-    tenant_id: <tenant-id>
-    client_id: <client-id>
-    client_secret: ${env:AZURE_CLIENT_SECRET}
-
-# Service Principal — certificate (PEM or unencrypted PFX)
-azure_auth:
-  service_principal:
-    tenant_id: <tenant-id>
-    client_id: <client-id>
-    client_certificate_path: /etc/otel-cert/cert.pem
-```
-
-> **Note:** `client_certificate_path` must point to an unencrypted PEM or PFX file — the extension does not support passphrase-protected certificates natively. For passphrase-protected PFX files in Kubernetes, use an init container to decrypt the PFX to a PEM file in a memory-backed `emptyDir` volume before the collector starts.
-
-For AKS Workload Identity, annotate the ServiceAccount and add the pod label — see the [Kubernetes deployment](#kubernetes-deployment) section.
+An `elasticsearch` exporter block is included but commented out. To use it, set `ELASTICSEARCH_ENDPOINT` and `ELASTICSEARCH_API_KEY`, uncomment the block, and add `elasticsearch` to each pipeline's exporters.
 
 ---
 
 ## Binary example (`examples/binary/`)
 
-A standalone config for local round-trip testing using the Kafka protocol. Ports are offset from the defaults (13134, 14317, 14318) so they don't conflict with a locally port-forwarded k8s collector.
+A config that ships to Elasticsearch, using the EDOT `elasticapm` processor and connector so traces show up in Kibana's APM UI. Ports are offset from the defaults (14317, 14318, 13134) so they don't conflict with a port-forwarded in-cluster collector.
 
 ```sh
-cd examples/binary
+# From otelcollector/:
+go build -o examples/binary/otelcol .
 
-export EVENTHUB_NAMESPACE=myns.servicebus.windows.net
-export EVENTHUB_NAME=otel-telemetry
-export EVENTHUB_SAS_KEY_NAME=RootManageSharedAccessKey
-export EVENTHUB_SAS_KEY=<key-value>
+export ELASTICSEARCH_ENDPOINT=https://<deployment>.es.<region>.azure.elastic-cloud.com:443
+export ELASTICSEARCH_API_KEY=<base64-api-key>
 
-./OTelCollector --config config.yaml
+./examples/binary/otelcol --config examples/binary/config.yaml
 ```
-
-To rebuild the binary from source:
 
 ```sh
-# From the otelcollector/ directory:
-go build -o examples/binary/OTelCollector .
+make send-traces OTLP_ENDPOINT=localhost:14317
 ```
-
-Send test data and watch it arrive back via the Kafka receiver:
-
-```sh
-telemetrygen logs \
-  --otlp-insecure \
-  --otlp-endpoint localhost:14317 \
-  --duration 5s --rate 3 \
-  --body "hello from binary"
-```
-
-The `logs/from_hub` pipeline in `examples/binary/config.yaml` reads from the `binary-test` consumer group and prints received messages to the debug exporter.
 
 ---
 
-## Kubernetes deployment
+## Kubernetes deployment (`examples/k8s/`)
 
-The `examples/k8s/` folder contains production-ready manifests for two deployment patterns:
+The standard EDOT agent → gateway layout:
+
+```
+workloads ──OTLP──► otel-collector (DaemonSet, one per node)
+                          │ OTLP gRPC
+                          ▼
+                    otel-gateway (Deployment, 2 replicas)
+                          │ elasticsearch exporter
+                          ▼
+                    Elasticsearch / Elastic Cloud
+```
+
+Before applying, replace the placeholders:
+
+| File | Placeholder |
+|---|---|
+| `collector/deployment.yaml`, `gateway/deployment.yaml` | `<REGISTRY>` — your image registry |
+| `collector/env-configmap.yaml`, `gateway/env-configmap.yaml` | `<CLUSTER_NAME>`, `<AZURE_REGION>`, `<ENVIRONMENT>` |
+| `collector/networkpolicy.yaml`, `gateway/networkpolicy.yaml` | `<NODE_SUBNET_CIDR>` — node subnet for kubelet health probes |
+| `gateway/secret.yaml` | `<ELASTICSEARCH_ENDPOINT>`, `<ELASTICSEARCH_API_KEY>` (or create the Secret with `kubectl create secret`, as shown in the file) |
 
 ### Collector (DaemonSet)
 
-One pod per node. Receives OTLP from workloads on the same node and forwards to Event Hub via Kafka.
+One pod per node. Receives OTLP from workloads and forwards it to the gateway.
 
-```
-examples/k8s/collector/
-```
+- **DaemonSet** with `tolerations: - operator: Exists` — runs on every node, including tainted ones.
+- **Resource processor** with `action: upsert` — stamps `k8s.cluster.name`, `cloud.*`, `deployment.environment.name`, and `k8s.node.name` (from the downward API) onto every signal.
+- **sending_queue** (`queue_size: 5000`) and **retry_on_failure** (`max_elapsed_time: 10m`) — buffers data in memory while the gateway is unavailable.
+- **PodDisruptionBudget** `maxUnavailable: 1` — allows rolling node drains.
 
-Key design choices:
-- **DaemonSet** with `tolerations: - operator: Exists` — runs on every node including control-plane and tainted nodes.
-- **Azure Workload Identity** — no SAS keys in the cluster; the pod acquires a token from the OIDC issuer.
-- **Resource processor** with `action: upsert` — stamps `k8s.cluster.name`, `cloud.provider`, `cloud.region`, and `k8s.node.name` (from the downward API) onto every signal.
-- **sending_queue** with `queue_size: 5000` and `retry_on_failure: max_elapsed_time: 10m` — buffers up to 5000 batches in memory during Event Hub outages.
-- **PodDisruptionBudget** `maxUnavailable: 1` — allows rolling node drains without dropping a node's data.
+Applications should send to their node's collector, e.g. `OTEL_EXPORTER_OTLP_ENDPOINT=http://$(NODE_IP):4317` with `NODE_IP` from `fieldRef: status.hostIP`, or to the `otel-collector.otel-collector.svc` Service.
 
 ### Gateway (Deployment)
 
-Two replicas behind a Service. Reads from Event Hub and forwards downstream (e.g. to Elasticsearch or another OTLP endpoint).
+Two replicas behind a ClusterIP Service. Receives OTLP from the agents and writes to Elasticsearch.
 
-```
-examples/k8s/gateway/
-```
+- **Topology spread** across zones and nodes, plus required `podAntiAffinity` — no two gateway pods on the same node.
+- **Resource processor** with `action: insert` — adds cluster metadata only if the agent didn't already set it.
+- **EDOT `elasticapm` processor and connector** — enrich traces and produce the aggregated APM metrics used by Kibana.
+- **PodDisruptionBudget** `minAvailable: 1`.
 
-Key design choices:
-- **Deployment** with 2 replicas, `topologySpreadConstraints` across zones and nodes, and required `podAntiAffinity` — no two gateway pods on the same node.
-- **Azure Workload Identity** — separate ServiceAccount and managed identity from the collector.
-- **Resource processor** with `action: insert` — adds cluster metadata only if not already set (does not override values from the collector).
-- **Kafka consumer group** `otel-gateway` — independent offset tracking from the collector's `$Default` group.
-- **PodDisruptionBudget** `minAvailable: 1` — at least one gateway pod is always running during voluntary disruptions.
-
-### Cluster info ConfigMap
-
-Before deploying either component, create the shared `cluster-info` ConfigMap in each namespace. It injects cluster-level metadata into every signal:
-
-```sh
-# Edit cluster-info.yaml: fill in CLUSTER_NAME, AZURE_REGION, ENVIRONMENT
-kubectl apply -f examples/k8s/cluster-info.yaml -n otel-collector
-kubectl apply -f examples/k8s/cluster-info.yaml -n otel-gateway
-```
+> gRPC balances per connection, so long-lived agent connections can pin to one gateway pod. For even distribution at scale, use a headless Service with the `load_balancing` exporter on the agents.
 
 ### Deploying
 
 ```sh
-# Collector
-kubectl apply -f examples/k8s/collector/namespace.yaml
-kubectl apply -f examples/k8s/collector/serviceaccount.yaml
-kubectl apply -f examples/k8s/cluster-info.yaml -n otel-collector
-kubectl apply -f examples/k8s/collector/env-configmap.yaml
-kubectl apply -f examples/k8s/collector/configmap.yaml
-kubectl apply -f examples/k8s/collector/service.yaml
-kubectl apply -f examples/k8s/collector/deployment.yaml
-kubectl apply -f examples/k8s/collector/pdb.yaml
+cd otelcollector/examples/k8s
 
-# Gateway
-kubectl apply -f examples/k8s/gateway/namespace.yaml
-kubectl apply -f examples/k8s/gateway/serviceaccount.yaml
-kubectl apply -f examples/k8s/cluster-info.yaml -n otel-gateway
-kubectl apply -f examples/k8s/gateway/env-configmap.yaml
-kubectl apply -f examples/k8s/gateway/configmap.yaml
-kubectl apply -f examples/k8s/gateway/service.yaml
-kubectl apply -f examples/k8s/gateway/deployment.yaml
-kubectl apply -f examples/k8s/gateway/pdb.yaml
+# Gateway first, so the agents have somewhere to send
+kubectl apply -f gateway/namespace.yaml
+kubectl apply -f gateway/
+
+# Agents
+kubectl apply -f collector/namespace.yaml
+kubectl apply -f collector/
+
+# Optional: send test telemetry
+kubectl apply -f telemetrygen/job.yaml
 ```
 
 ### Collector log levels
 
-The collector's own internal logs are controlled by `service.telemetry.logs.level` in the config. This is separate from the telemetry data it processes.
+`service.telemetry.logs.level` controls the collector's own logs (not the telemetry it processes):
 
 | Level | When to use |
 |---|---|
-| `debug` | Development and troubleshooting — logs every component lifecycle event, pipeline startup, auth token fetch, and Kafka consumer group join |
-| `info` | Staging — logs normal operational events; the `debug` exporter emits received telemetry at this level |
-| `warn` | Production — logs only unexpected conditions; silent under normal operation |
-| `error` | Production (minimal) — logs only failures |
+| `debug` | Troubleshooting — component lifecycle, pipeline startup, exporter connections |
+| `info` | Default — normal operational events |
+| `warn` | Production — only unexpected conditions |
+| `error` | Production (minimal) — only failures |
 
-To change the level on a running collector without redeployment:
+After editing a ConfigMap, restart to pick up the change:
 
 ```sh
-# Patch the ConfigMap
-kubectl patch configmap otel-collector-config -n otel-collector \
-  --type=json \
-  -p '[{"op":"replace","path":"/data/config.yaml","value":"..."}]'
-
-# Then restart the DaemonSet to pick up the change
 kubectl rollout restart daemonset/otel-collector -n otel-collector
+kubectl rollout restart deployment/otel-gateway -n otel-gateway
 ```
-
-> **Note:** `service.telemetry.logs.level` controls the collector process's own logs. The `debug` exporter's output verbosity is a separate setting under `exporters.debug.verbosity` (`basic`, `normal`, `detailed`) and is unaffected by the log level.
-
-### Azure Workload Identity setup
-
-1. Create a user-assigned managed identity and federate it with the AKS OIDC issuer:
-
-   ```sh
-   az identity create --name otel-collector-identity --resource-group <rg>
-
-   az identity federated-credential create \
-     --name otel-collector-federated \
-     --identity-name otel-collector-identity \
-     --resource-group <rg> \
-     --issuer <aks-oidc-issuer-url> \
-     --subject system:serviceaccount:otel-collector:otel-collector \
-     --audience api://AzureADTokenExchange
-   ```
-
-2. Grant the identity the **Azure Event Hubs Data Sender** (collector) and **Azure Event Hubs Data Receiver** (gateway) roles on the namespace:
-
-   ```sh
-   NAMESPACE_ID=$(az eventhubs namespace show \
-     --resource-group <rg> --name <namespace> --query id -o tsv)
-
-   az role assignment create \
-     --assignee <collector-identity-principal-id> \
-     --role "Azure Event Hubs Data Sender" \
-     --scope "$NAMESPACE_ID"
-
-   az role assignment create \
-     --assignee <gateway-identity-principal-id> \
-     --role "Azure Event Hubs Data Receiver" \
-     --scope "$NAMESPACE_ID"
-   ```
-
-3. Annotate the ServiceAccount in `examples/k8s/collector/serviceaccount.yaml`:
-
-   ```yaml
-   annotations:
-     azure.workload.identity/client-id: <managed-identity-client-id>
-   ```
 
 ---
 
@@ -498,13 +235,13 @@ kubectl rollout restart daemonset/otel-collector -n otel-collector
 
 | Stage | Job | Agent | Output |
 |---|---|---|---|
-| Build | Linux (amd64) | `ubuntu-latest` | `OTelCollector` binary artifact |
-| Build | Windows (amd64) | `windows-latest` | `OTelCollector.exe` binary artifact |
+| Build | Linux (amd64) | `ubuntu-latest` | `otelcol` binary artifact |
+| Build | Windows (amd64) | `windows-latest` | `otelcol.exe` binary artifact |
 | Docker | Build & push | `ubuntu-latest` | Image pushed to ACR (main branch only) |
 
-Linux and Windows build jobs run in parallel. The Docker stage depends on both and only pushes on the `main` branch.
+Linux and Windows builds run in parallel. The Docker stage depends on both and only pushes on `main`.
 
-Setup steps:
+Setup:
 
 1. Create an Azure Container Registry if needed:
    ```sh
@@ -513,7 +250,7 @@ Setup steps:
 
 2. Create a Docker Registry service connection in Azure DevOps (Project Settings → Service connections → Docker Registry → Azure Container Registry).
 
-3. Set these pipeline variables in Azure DevOps:
+3. Set these pipeline variables:
 
    | Variable | Example |
    |---|---|
@@ -524,98 +261,43 @@ Setup steps:
 
 ## Adding or removing components
 
-All included components are declared in `manifest.yaml`. To add a new one:
+All components are declared in `manifest.yaml`. To change the set:
 
-1. Add the `gomod:` entry under the appropriate section in `manifest.yaml`.
+1. Add or remove the `gomod:` entry under the right section.
 2. Regenerate sources:
 
    ```sh
    make generate
    ```
 
-3. Add the component to `collector-config.yaml` and rebuild.
+3. Reference the component in your config and rebuild.
 
-> After `make generate`, OCB rewrites `go.mod` from scratch. The transitive version pins in the `replaces:` section of `manifest.yaml` are applied automatically during generation. The Makefile's `generate` target also re-applies two additional pins via `sed` (see the Dockerfile for the same logic used in container builds).
+> `make generate` rewrites `go.mod` from scratch. Keep every component on the same release train (core v0.164.0 / v1.70.0, contrib v0.164.1, and the EDOT component versions built against them). If OCB resolves an incompatible transitive version, pin it in a `replaces:` section of `manifest.yaml`.
 
-The eBPF profiling receiver (`ebpfprofilingreceiver`) is intentionally excluded — it requires Linux-only syscalls incompatible with macOS and Windows build environments.
+### Upgrading
 
----
+1. Check which collector version the latest EDOT components require — `go.opentelemetry.io/collector/component` in, for example, [elasticapmconnector's go.mod](https://github.com/elastic/opentelemetry-collector-components/blob/main/connector/elasticapmconnector/go.mod) — or follow [elastic-agent's `internal/edot/go.mod`](https://github.com/elastic/elastic-agent/blob/main/internal/edot/go.mod).
+2. Bump the core, contrib, and EDOT entries in `manifest.yaml` plus `otelcol_version`, and the OCB version in the `Makefile`, `Dockerfile`, and this README.
+3. `make generate && make build`.
+
+Renaming the binary: change `dist.name` in `manifest.yaml` and run `make generate`. The Makefile, pipeline, and ignore files all derive the name from it.
+
+## Manifests
+
+| File | Purpose |
+|---|---|
+| `manifest.yaml` | The build. Used by `make generate`, the Dockerfile and the pipeline; produces the `otelcol` binary and image. |
+| `manifest-old.yaml` | Previous broad EDOT component set, kept for reference only. Same layout as `manifest.yaml`, so `diff manifest-old.yaml manifest.yaml` shows exactly what differs. |
+| `manifest-core.yaml` | Core-only component list, kept for reference only. |
 
 ## Component inventory
 
-<details>
-<summary>Extensions (16)</summary>
+Component type names as reported by `./otelcol components`. Contrib v0.164 moved many types to snake_case (e.g. `resource_detection`, `otlp_grpc`); the old names (`resourcedetection`, `otlp`) still load as deprecated aliases.
 
-| Component ID | Source |
-|---|---|
-| `api_key` | `apikeyauthextension` (EDOT) |
-| `apm_config` | `apmconfigextension` (EDOT) |
-| `aws_logs_encoding` | `awslogsencodingextension` |
-| `azure_encoding` | `azureencodingextension` |
-| `azure_auth` | `azureauthextension` |
-| `bearer_token_auth` | `bearertokenauthextension` |
-| `cgroup_runtime` | `cgroupruntimeextension` |
-| `file_storage` | `filestorage` |
-| `headers_setter` | `headerssetterextension` |
-| `health_check` | `healthcheckextension` |
-| `health_check/v2` | `healthcheckv2extension` |
-| `k8s_leader_elector` | `k8sleaderelector` |
-| `k8s_observer` | `k8sobserver` |
-| `memory_limiter` | `memorylimiterextension` |
-| `opamp` | `opampextension` |
-| `pprof` | `pprofextension` |
-
-</details>
-
-<details>
-<summary>Receivers (39)</summary>
-
-Includes `otlp`, `azure_event_hub`, `elastic_apm_intake`, `hostmetrics`, `filelog`, `prometheus`, `jaeger`, `zipkin`, `k8s_cluster`, `kubeletstats`, `kafka`, `statsd`, `sqlserver`, `windowseventlog`, `windowsperfcounters`, and more. See `manifest.yaml` for the full list.
-
-</details>
-
-<details>
-<summary>Processors (14)</summary>
-
-| Component ID | Source |
-|---|---|
-| `attributes` | `attributesprocessor` |
-| `batch` | `batchprocessor` |
-| `cumulativetodelta` | `cumulativetodeltaprocessor` |
-| `elastic_apm` | `elasticapmprocessor` (EDOT) |
-| `filter` | `filterprocessor` |
-| `geoip` | `geoipprocessor` |
-| `k8sattributes` | `k8sattributesprocessor` |
-| `logdedup` | `logdedupprocessor` |
-| `memory_limiter` | `memorylimiterprocessor` |
-| `rate_limit` | `ratelimitprocessor` (EDOT) |
-| `resource` | `resourceprocessor` |
-| `resourcedetection` | `resourcedetectionprocessor` |
-| `tail_sampling` | `tailsamplingprocessor` |
-| `transform` | `transformprocessor` |
-
-</details>
-
-<details>
-<summary>Exporters (9)</summary>
-
-| Component ID | Source |
-|---|---|
-| `azure_event_hub` | `azureeventhubexporter` |
-| `debug` | `debugexporter` |
-| `elasticsearch` | `elasticsearchexporter` |
-| `file` | `fileexporter` |
-| `kafka` | `kafkaexporter` |
-| `loadbalancing` | `loadbalancingexporter` |
-| `nop` | `nopexporter` |
-| `otlp` | `otlpexporter` |
-| `otlphttp` | `otlphttpexporter` |
-
-</details>
-
-<details>
-<summary>Connectors (6)</summary>
-
-`elastic_apm`, `forward`, `otlpjson`, `profiling_metrics` (EDOT), `routing`, `spanmetrics`
-
-</details>
+| Kind | Count | Types |
+|---|---|---|
+| Extensions | 15 | `apikeyauth` (EDOT), `apmconfig` (EDOT), `azure_auth`, `azure_encoding`, `beats_encoding` (EDOT), `cgroup_runtime`, `file_storage`, `headers_setter`, `health_check`, `healthcheckv2`, `k8s_leader_elector`, `k8s_observer`, `memory_limiter`, `opamp`, `pprof` |
+| Receivers | 10 | `elasticapmintake` (EDOT), `file_log`, `k8s_cluster`, `k8s_events`, `k8s_objects`, `kafka`, `kafka_metrics`, `kubelet_stats`, `otlp`, `receiver_creator` |
+| Processors | 17 | `attributes`, `batch`, `cumulative_to_delta`, `elasticapm` (EDOT), `elasticinframetrics` (EDOT), `elasticmetadata` (EDOT), `elastictrace` (EDOT, deprecated), `filter`, `geoip`, `k8s_attributes`, `log_dedup`, `memory_limiter`, `ratelimit` (EDOT), `resource`, `resource_detection`, `tail_sampling`, `transform` |
+| Exporters | 6 | `debug`, `elasticsearch`, `kafka`, `opensearch`, `otlp_grpc`, `otlp_http` |
+| Connectors | 6 | `elasticapm` (EDOT), `forward`, `otlp_json`, `profilingmetrics` (EDOT), `routing`, `span_metrics` |

@@ -1,0 +1,60 @@
+# resource_detection processor — detects where the collector is running and adds that as
+# resource attributes (host, OS, cloud provider, region, VM and AKS cluster details, ...).
+#
+# Scenario: collector running on Azure (AKS node or VM). Every signal gets host.name,
+# os.type, cloud.provider/region/account.id and azure.vm.* without hard-coding anything.
+# Values the SDK already set are kept (override: false).
+#
+# Detectors run in order; the first one to set an attribute wins.
+#   env    - OTEL_RESOURCE_ATTRIBUTES environment variable
+#   azure  - Azure Instance Metadata Service (IMDS)
+#   aks    - AKS cluster name / cloud.platform
+#   system - hostname and OS
+#
+# Run:  ./otelcol --config doc/processors/resource_detection.example.yaml
+# Env:  ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+
+  resource_detection:
+    detectors: [env, azure, aks, system]
+    timeout: 5s
+    override: false
+    system:
+      hostname_sources: [os]
+
+  batch: {}
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource_detection, batch]
+      exporters: [elasticsearch]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resource_detection, batch]
+      exporters: [elasticsearch]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resource_detection, batch]
+      exporters: [elasticsearch]

@@ -1,0 +1,82 @@
+# attributes processor — add, update, delete, hash or extract attributes on individual
+# spans, log records and metric data points.
+#
+# Scenario: a gateway that receives telemetry from many teams and must scrub sensitive data
+# before it is stored in Elasticsearch:
+#   - drop credentials that some HTTP instrumentations record
+#   - hash end-user identifiers (keeps them joinable, but not readable)
+#   - stamp which gateway handled the data
+#   - pull the tenant out of the URL path into its own attribute
+#
+# Run:  ./otelcol --config doc/processors/attributes.example.yaml
+# Env:  ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY, HOSTNAME
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+
+  attributes/scrub:
+    actions:
+      # Credentials must never reach the backend.
+      - key: http.request.header.authorization
+        action: delete
+      - key: http.request.header.cookie
+        action: delete
+      # Hash (SHA-256) personal identifiers.
+      - key: user.email
+        action: hash
+      - key: enduser.id
+        action: hash
+      # Record which gateway pod processed the data (insert = only if missing).
+      - key: otel.gateway.name
+        value: ${env:HOSTNAME}
+        action: insert
+      # /tenants/acme/orders/42  ->  tenant.id = "acme"
+      - key: url.path
+        pattern: ^/tenants/(?P<tenant_id>[^/]+)/
+        action: extract
+      - key: tenant.id
+        from_attribute: tenant_id
+        action: insert
+      - key: tenant_id
+        action: delete
+
+  # Only touch spans from the public API services; everything else passes through unchanged.
+  attributes/public-api:
+    include:
+      match_type: regexp
+      services: ["^public-api-.*"]
+    actions:
+      - key: exposure
+        value: internet
+        action: upsert
+
+  batch: {}
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, attributes/scrub, attributes/public-api, batch]
+      exporters: [elasticsearch]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, attributes/scrub, batch]
+      exporters: [elasticsearch]

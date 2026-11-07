@@ -1,0 +1,50 @@
+# elasticmetadata processor (EDOT) — copies request (client) metadata, such as HTTP
+# headers seen by the receiver, into fields of the log body.
+#
+# Scenario: a shared log intake where each sender identifies itself with headers
+# (X-Tenant-Id, X-Source-Region). Those values must end up on every stored log document so
+# they can be filtered on in Kibana.
+#
+# Requirements:
+#   - include_metadata: true on the receiver, so headers are kept as client metadata
+#   - the log body must be a map (structured logs); other bodies pass through unchanged
+#
+# Run:  ./otelcol --config doc/processors/elasticmetadata.example.yaml
+# Env:  ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+        include_metadata: true
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+
+  elasticmetadata:
+    # client metadata key  ->  field in the log body
+    log_body_fields:
+      x-tenant-id: tenant.id
+      x-source-region: cloud.region
+
+  batch:
+    # keep metadata through the batch processor
+    metadata_keys: [x-tenant-id, x-source-region]
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  pipelines:
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, elasticmetadata, batch]
+      exporters: [elasticsearch]

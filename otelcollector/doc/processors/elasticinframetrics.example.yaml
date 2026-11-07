@@ -1,0 +1,47 @@
+# elasticinframetrics processor (EDOT) — derives Elastic-compatible infrastructure metrics
+# from OTel kubelet_stats / host_metrics data, without changing the original metrics.
+# Those derived metrics power Kibana's curated Infrastructure / Kubernetes UIs.
+#
+# Scenario: node-level DaemonSet collecting pod and container stats from the kubelet and
+# shipping them to Elasticsearch so the Kubernetes inventory views in Kibana work.
+#
+# Kubernetes: runs as a DaemonSet; needs RBAC get on nodes/stats and nodes/proxy, and
+#             K8S_NODE_NAME from the downward API (spec.nodeName).
+#
+# Run:  ./otelcol --config doc/processors/elasticinframetrics.example.yaml
+# Env:  ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY, K8S_NODE_NAME
+
+receivers:
+  kubelet_stats:
+    auth_type: serviceAccount
+    endpoint: https://${env:K8S_NODE_NAME}:10250
+    insecure_skip_verify: true
+    collection_interval: 30s
+    metric_groups: [node, pod, container]
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+
+  elasticinframetrics:
+    add_k8s_metrics: true      # derive Elastic Kubernetes metrics from kubelet_stats
+    add_system_metrics: false  # no host_metrics receiver in this pipeline
+    drop_original: false       # keep the OTel metrics as well
+
+  batch: {}
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  pipelines:
+    metrics:
+      receivers: [kubelet_stats]
+      processors: [memory_limiter, elasticinframetrics, batch]
+      exporters: [elasticsearch]

@@ -1,0 +1,44 @@
+# elastictrace processor (EDOT) — DEPRECATED.
+#
+# Elastic deprecated this processor in favour of the elasticapm processor
+# (doc/processors/elasticapm.example.yaml), which does the same enrichment for traces
+# and also covers logs and metrics. It is only kept in the build for older configs.
+#
+# Scenario: an existing trace pipeline that still references elastictrace and is being
+# migrated. Replace `elastictrace` with `elasticapm` (and add the elasticapm connector) when
+# you can.
+#
+# Run:  ./otelcol --config doc/processors/elastictrace.example.yaml
+# Env:  ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+
+  elastictrace: {}
+
+  batch: {}
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, elastictrace, batch]
+      exporters: [elasticsearch]

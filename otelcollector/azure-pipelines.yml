@@ -25,7 +25,7 @@ pr:
     - main
 
 variables:
-  GO_VERSION: '1.26'
+  GO_VERSION: '1.27'
   # BINARY_NAME and IMAGE_REPOSITORY are derived from manifest.yaml dist.name at
   # runtime by the "Read names from manifest.yaml" step in each job below.
   # To rename: change dist.name in manifest.yaml — no other file needs editing.

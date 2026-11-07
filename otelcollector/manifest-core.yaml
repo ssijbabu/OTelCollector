@@ -1,0 +1,39 @@
+# OCB builder manifest — minimal OpenTelemetry Collector (core components only)
+#
+# Only modules from the core repo (go.opentelemetry.io/collector) — no contrib, no EDOT.
+# This is the smallest set that still gives a working collector:
+#   - providers  : load the config file and resolve ${env:...} references
+#   - receiver   : OTLP in (gRPC 4317 / HTTP 4318)
+#   - processors : memory_limiter (protects against OOM) and batch
+#   - exporters  : OTLP out (gRPC and HTTP) and debug (stdout)
+#
+# Not included (they live in contrib): health_check extension, resource_detection,
+# elasticsearch exporter, k8s components. Configs that use those won't load with this build.
+#
+# Compatible with OTel Collector v1.70.0 / v0.164.0.
+#
+# Generate + build:  builder --config manifest-core.yaml
+
+dist:
+  name: otelcol_core
+  description: Minimal OpenTelemetry Collector (core components only)
+  version: 0.1.0
+  output_path: ./core
+  otelcol_version: 0.164.0
+
+receivers:
+  - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.164.0
+
+processors:
+  - gomod: go.opentelemetry.io/collector/processor/batchprocessor v0.164.0
+  - gomod: go.opentelemetry.io/collector/processor/memorylimiterprocessor v0.164.0
+
+exporters:
+  - gomod: go.opentelemetry.io/collector/exporter/debugexporter v0.164.0
+  - gomod: go.opentelemetry.io/collector/exporter/otlpexporter v0.164.0
+  - gomod: go.opentelemetry.io/collector/exporter/otlphttpexporter v0.164.0
+
+providers:
+  - gomod: go.opentelemetry.io/collector/confmap/provider/envprovider v1.70.0
+  - gomod: go.opentelemetry.io/collector/confmap/provider/fileprovider v1.70.0
+  - gomod: go.opentelemetry.io/collector/confmap/provider/yamlprovider v1.70.0

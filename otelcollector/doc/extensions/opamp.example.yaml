@@ -1,0 +1,57 @@
+# opamp extension — connects the collector to an OpAMP server for fleet management: the
+# server sees each collector's identity, health and effective configuration.
+#
+# Scenario: dozens of collectors across clusters are registered in a central OpAMP-based
+# fleet manager, so you can see which version and config every instance runs and whether
+# it is healthy.
+#
+# Run:  ./otelcol --config doc/extensions/opamp.example.yaml
+# Env:  OPAMP_ENDPOINT (e.g. wss://opamp.example.com/v1/opamp), OPAMP_API_KEY,
+#       POD_NAME, K8S_CLUSTER_NAME,
+#       ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+
+extensions:
+  opamp:
+    server:
+      ws:
+        endpoint: ${env:OPAMP_ENDPOINT}
+        headers:
+          Authorization: Bearer ${env:OPAMP_API_KEY}
+    capabilities:
+      reports_effective_config: true
+      reports_health: true
+    agent_description:
+      non_identifying_attributes:
+        k8s.cluster.name: ${env:K8S_CLUSTER_NAME}
+        k8s.pod.name: ${env:POD_NAME}
+        deployment.environment.name: production
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  batch: {}
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  extensions: [opamp]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [elasticsearch]

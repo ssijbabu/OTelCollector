@@ -1,0 +1,52 @@
+# memory_limiter processor — checks memory use and refuses data (so senders back off and
+# retry) before the collector runs out of memory.
+#
+# Scenario: gateway pod with a 2Gi memory limit receiving bursty traffic. Without a
+# limiter, a burst or a slow Elasticsearch fills queues until the pod is OOM-killed and
+# everything in memory is lost.
+#
+# Rules of thumb:
+#   - put memory_limiter FIRST in every pipeline
+#   - percentages are of the container memory limit (cgroup) when one is set
+#   - pair with GOMEMLIMIT (or the cgroup_runtime extension) slightly above the soft limit
+#
+# Run:  ./otelcol --config doc/processors/memory_limiter.example.yaml
+# Env:  ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80         # hard limit: refuse data above 80% of available memory
+    spike_limit_percentage: 20   # soft limit = 80% - 20% = 60%: start refusing early
+
+  batch: {}
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [elasticsearch]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [elasticsearch]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [elasticsearch]
