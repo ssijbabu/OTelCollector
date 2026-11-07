@@ -1,6 +1,6 @@
 .PHONY: setup tidy build generate install-ocb run \
         docker-build docker-run \
-        send-logs send-metrics send-traces install-telemetrygen
+        send-logs send-metrics send-traces send-all install-telemetrygen
 
 # ─── Single source of truth ────────────────────────────────────────────────────
 # Change dist.name in manifest.yaml to rename the binary and image everywhere.
@@ -10,7 +10,7 @@ IMAGE_NAME := $(shell echo $(BINARY) | tr '[:upper:]' '[:lower:]')
 
 CONFIG        := collector-config.yaml
 OTLP_ENDPOINT := localhost:4317
-OCB_VERSION   := 0.152.0
+OCB_VERSION   := 0.164.0
 IMAGE_TAG     := latest
 
 # ---------------------------------------------------------------------------
@@ -48,39 +48,21 @@ build:
 	@echo "Built ./$(BINARY)"
 
 # ---------------------------------------------------------------------------
-# Run: start the collector (requires EVENTHUB_CONNECTION_STRING env var)
+# Run: start the collector with the default config (OTLP in, debug out)
 # ---------------------------------------------------------------------------
 run: build
-	@if [ -z "$$EVENTHUB_NAMESPACE" ] || [ -z "$$EVENTHUB_NAME" ] || \
-	    [ -z "$$EVENTHUB_SAS_KEY_NAME" ] || [ -z "$$EVENTHUB_SAS_KEY" ]; then \
-		echo "ERROR: required env vars not set. Export all four before running:"; \
-		echo "  export EVENTHUB_NAMESPACE=<ns>.servicebus.windows.net"; \
-		echo "  export EVENTHUB_NAME=<hub-name>"; \
-		echo "  export EVENTHUB_SAS_KEY_NAME=<key-name>"; \
-		echo "  export EVENTHUB_SAS_KEY=<key-value>"; \
-		exit 1; \
-	fi
 	./$(BINARY) --config $(CONFIG)
 
 # ---------------------------------------------------------------------------
 # Docker: build and run the collector as a container.
-# Requires EVENTHUB_NAMESPACE, EVENTHUB_NAME, EVENTHUB_SAS_KEY_NAME, EVENTHUB_SAS_KEY.
+# The build context is the repo root (..).
 # ---------------------------------------------------------------------------
 docker-build:
 	docker build --build-arg BINARY_NAME=$(BINARY) -f Dockerfile --tag $(IMAGE_NAME):$(IMAGE_TAG) ..
 	@echo "Built image $(IMAGE_NAME):$(IMAGE_TAG)"
 
 docker-run:
-	@if [ -z "$$EVENTHUB_NAMESPACE" ] || [ -z "$$EVENTHUB_NAME" ] || \
-	    [ -z "$$EVENTHUB_SAS_KEY_NAME" ] || [ -z "$$EVENTHUB_SAS_KEY" ]; then \
-		echo "ERROR: required env vars not set."; \
-		exit 1; \
-	fi
 	docker run --rm \
-		-e EVENTHUB_NAMESPACE="$$EVENTHUB_NAMESPACE" \
-		-e EVENTHUB_NAME="$$EVENTHUB_NAME" \
-		-e EVENTHUB_SAS_KEY_NAME="$$EVENTHUB_SAS_KEY_NAME" \
-		-e EVENTHUB_SAS_KEY="$$EVENTHUB_SAS_KEY" \
 		-p 4317:4317 \
 		-p 4318:4318 \
 		-p 13133:13133 \
@@ -91,7 +73,7 @@ docker-run:
 # The collector must already be running in another terminal.
 # ---------------------------------------------------------------------------
 install-telemetrygen:
-	go install github.com/open-telemetry/opentelemetry-collector-contrib/cmd/telemetrygen@latest
+	go install github.com/open-telemetry/opentelemetry-collector-contrib/cmd/telemetrygen@v0.164.1
 
 send-logs:
 	telemetrygen logs \

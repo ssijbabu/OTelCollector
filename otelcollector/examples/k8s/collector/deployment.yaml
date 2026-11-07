@@ -17,7 +17,6 @@ spec:
     metadata:
       labels:
         app: otel-collector
-        azure.workload.identity/use: "true"
     spec:
       securityContext:
         fsGroup: 10001
@@ -25,7 +24,7 @@ spec:
         runAsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
-          
+
       serviceAccountName: otel-collector
 
       # Tolerate all node taints so the collector runs on every node
@@ -35,22 +34,22 @@ spec:
 
       containers:
       - name: otel-collector
-        # Replace with your ACR image path, e.g. myregistry.azurecr.io/otelcollector:latest
-        image: <REGISTRY>.azurecr.io/otelcollector:latest
+        # Replace with your image, e.g. myregistry.azurecr.io/otelcol:latest
+        image: <REGISTRY>.azurecr.io/otelcol:latest
         imagePullPolicy: IfNotPresent
 
         securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
-            runAsNonRoot: true
-            runAsUser: 65532
-            runAsGroup: 65532
-            
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          runAsNonRoot: true
+          runAsUser: 65532
+          runAsGroup: 65532
+
         args:
         - --config=/etc/otelcol/config.yaml
-        
+
         ports:
         - name: otlp-grpc
           containerPort: 4317
@@ -62,26 +61,6 @@ spec:
           containerPort: 13133
           protocol: TCP
         env:
-        - name: EVENTHUB_NAMESPACE
-          valueFrom:
-            configMapKeyRef:
-              name: otel-collector-env
-              key: namespace
-        - name: EVENTHUB_LOGS_HUB_NAME
-          valueFrom:
-            configMapKeyRef:
-              name: otel-collector-env
-              key: logs-hub-name
-        - name: EVENTHUB_METRICS_HUB_NAME
-          valueFrom:
-            configMapKeyRef:
-              name: otel-collector-env
-              key: metrics-hub-name
-        - name: EVENTHUB_TRACES_HUB_NAME
-          valueFrom:
-            configMapKeyRef:
-              name: otel-collector-env
-              key: traces-hub-name
         - name: K8S_NODE_NAME
           valueFrom:
             fieldRef:

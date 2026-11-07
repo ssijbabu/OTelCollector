@@ -10,9 +10,21 @@ spec:
   policyTypes:
   - Ingress
   ingress:
+  # OTLP from the otel-collector DaemonSet.
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: otel-collector
+      podSelector:
+        matchLabels:
+          app: otel-collector
+    ports:
+    - port: 4317
+      protocol: TCP
+    - port: 4318
+      protocol: TCP
+
   # Health check probes from the kubelet (node host network).
-  # The gateway pulls from Event Hubs over Kafka — it does not
-  # expose any OTLP ingress port.
   # Replace <NODE_SUBNET_CIDR> with your node subnet,
   # e.g. 10.224.0.0/16 for AKS default node subnet.
   # With Cilium you can use CiliumNetworkPolicy fromEntities: [host] instead.
@@ -52,7 +64,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: otel-gateway-egress-azure
+  name: otel-gateway-egress-elasticsearch
   namespace: otel-gateway
 spec:
   podSelector:
@@ -61,11 +73,9 @@ spec:
   policyTypes:
   - Egress
   egress:
-  # Azure AD token endpoint (workload identity token fetch):
-  #   login.microsoftonline.com:443
-  # Azure Event Hubs Kafka endpoint (consumer):
-  #   <namespace>.servicebus.windows.net:9093
-  # Both resolve to Azure public IPs — private ranges are excluded.
+  # Elasticsearch / Elastic Cloud endpoint (HTTPS 443, or 9200 for self-managed).
+  # Public IPs only — private ranges are excluded. If Elasticsearch runs
+  # in-cluster or on a private network, replace this with a matching selector/CIDR.
   # Use Cilium CiliumNetworkPolicy with toFQDNs for tighter control.
   - to:
     - ipBlock:
@@ -77,5 +87,5 @@ spec:
     ports:
     - port: 443
       protocol: TCP
-    - port: 9093
+    - port: 9200
       protocol: TCP

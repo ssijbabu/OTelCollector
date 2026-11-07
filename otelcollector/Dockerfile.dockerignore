@@ -9,5 +9,5 @@ otelcollector/go.mod
 otelcollector/go.sum
 
 # Compiled binaries
-otelcollector/OTelCollector
-otelcollector/examples/binary/OTelCollector
+otelcollector/otelcol
+otelcollector/examples/binary/otelcol

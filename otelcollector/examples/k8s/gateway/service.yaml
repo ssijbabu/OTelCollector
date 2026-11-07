@@ -6,11 +6,21 @@ metadata:
   labels:
     app: otel-gateway
 spec:
-  # ClusterIP — gateway pulls from Event Hub, no inbound data path needed
+  # ClusterIP — the otel-collector DaemonSet sends OTLP here.
+  # gRPC load-balances per connection, so with long-lived agent connections
+  # consider a headless Service + the loadbalancing exporter for even spread.
   type: ClusterIP
   selector:
     app: otel-gateway
   ports:
+  - name: otlp-grpc
+    port: 4317
+    targetPort: otlp-grpc
+    protocol: TCP
+  - name: otlp-http
+    port: 4318
+    targetPort: otlp-http
+    protocol: TCP
   - name: health
     port: 13133
     targetPort: health

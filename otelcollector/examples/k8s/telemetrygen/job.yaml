@@ -29,7 +29,7 @@ spec:
 
       initContainers:
       - name: send-logs
-        image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest
+        image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:v0.164.1
         args:
         - logs
         - --otlp-insecure
@@ -39,7 +39,7 @@ spec:
         - --body=telemetrygen test log from k8s
 
       - name: send-traces
-        image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest
+        image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:v0.164.1
         args:
         - traces
         - --otlp-insecure
@@ -48,7 +48,7 @@ spec:
         - --rate=5
 
       - name: send-metrics
-        image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest
+        image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:v0.164.1
         args:
         - metrics
         - --otlp-insecure
@@ -58,5 +58,5 @@ spec:
 
       containers:
       - name: done
-        image: busybox:latest
+        image: busybox:1.37
         command: ["/bin/sh", "-c", "echo telemetrygen complete"]
