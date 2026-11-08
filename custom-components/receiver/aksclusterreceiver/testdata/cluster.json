@@ -1,0 +1,77 @@
+{
+    "id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourcegroups/example-rg/providers/Microsoft.ContainerService/managedClusters/example-aks",
+    "location": "eastus",
+    "name": "example-aks",
+    "type": "Microsoft.ContainerService/ManagedClusters",
+    "properties": {
+        "provisioningState": "Succeeded",
+        "powerState": {"code": "Stopped"},
+        "kubernetesVersion": "1.37",
+        "currentKubernetesVersion": "1.37.1",
+        "dnsPrefix": "example-aks-example-rg-000000",
+        "fqdn": "example-aks-example-rg-000000-abcdefgh.hcp.eastus.azmk8s.io",
+        "agentPoolProfiles": [
+            {
+                "name": "nodepool1",
+                "count": 2,
+                "vmSize": "Standard_D2s_v4",
+                "osDiskSizeGB": 128,
+                "maxPods": 250,
+                "type": "VirtualMachineScaleSets",
+                "enableAutoScaling": false,
+                "provisioningState": "Succeeded",
+                "powerState": {"code": "Stopped"},
+                "orchestratorVersion": "1.37",
+                "currentOrchestratorVersion": "1.37.1",
+                "mode": "System",
+                "osType": "Linux",
+                "osSKU": "Ubuntu",
+                "nodeImageVersion": "AKSUbuntu-2404gen2containerd-202610.23.0"
+            },
+            {
+                "name": "user1",
+                "count": 3,
+                "vmSize": "Standard_D4s_v5",
+                "maxPods": 110,
+                "enableAutoScaling": true,
+                "minCount": 1,
+                "maxCount": 5,
+                "provisioningState": "Succeeded",
+                "powerState": {"code": "Running"},
+                "currentOrchestratorVersion": "1.37.1",
+                "mode": "User",
+                "osType": "Linux",
+                "osSKU": "AzureLinux",
+                "nodeImageVersion": "AKSAzureLinux-V3gen2-202610.23.0"
+            }
+        ],
+        "linuxProfile": {
+            "adminUsername": "azureuser",
+            "ssh": {"publicKeys": [{"keyData": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCtestkey"}]}
+        },
+        "windowsProfile": {"adminUsername": "azadmin", "adminPassword": "not-a-real-password"},
+        "servicePrincipalProfile": {"clientId": "msi", "secret": "not-a-real-secret"},
+        "aadProfile": {"managed": true, "serverAppSecret": "not-a-real-secret"},
+        "httpProxyConfig": {"httpProxy": "http://user:pass@proxy.example:3128", "trustedCa": "LS0tLS1CRUdJTg=="},
+        "nodeResourceGroup": "MC_example-rg_example-aks_eastus",
+        "enableRBAC": true,
+        "supportPlan": "KubernetesOfficial",
+        "networkProfile": {
+            "networkPlugin": "azure",
+            "networkPluginMode": "overlay",
+            "networkPolicy": "none",
+            "outboundType": "loadBalancer",
+            "podCidr": "10.244.0.0/16",
+            "serviceCidr": "10.0.0.0/16"
+        },
+        "autoUpgradeProfile": {"nodeOSUpgradeChannel": "NodeImage"},
+        "securityProfile": {"workloadIdentity": {"enabled": true}},
+        "oidcIssuerProfile": {"enabled": true}
+    },
+    "identity": {
+        "type": "SystemAssigned",
+        "principalId": "00000000-0000-0000-0000-000000000001",
+        "tenantId": "00000000-0000-0000-0000-000000000002"
+    },
+    "sku": {"name": "Base", "tier": "Free"}
+}

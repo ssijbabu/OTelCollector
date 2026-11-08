@@ -1,7 +1,7 @@
 # Component examples
 
 For every processor, connector, extension and provider in this build (`manifest.yaml`)
-there are two files:
+there are two files (the custom receivers' guides are their own READMEs under [`custom-components/`](../../custom-components/)):
 
 - **`<name>.md`:** a guide from the Kubernetes perspective: the use case, whether to run it
   on the agent DaemonSet or the gateway Deployment, the RBAC, volumes and env it needs,
@@ -33,6 +33,13 @@ Check a config without starting it:
 > anything. Examples that use Kubernetes components must run in a cluster (or with a
 > kubeconfig); `geoip` needs a MaxMind `.mmdb` file; `profilingmetrics` needs
 > `--feature-gates=service.profilesSupport`.
+
+## Receivers
+
+| Example | Scenario |
+|---|---|
+| [aks](../../custom-components/receiver/aksclusterreceiver/README.md) · [config](receivers/aks.example.yaml) | Custom receiver: state of every AKS cluster in a subscription (stopped, version, node pools) from Azure Resource Manager |
+| [azure_activity_log](../../custom-components/receiver/azureactivitylogreceiver/README.md) · [config](receivers/azure_activity_log.example.yaml) | Custom receiver: audit trail of control-plane changes (who changed/stopped/deleted what) from the subscription activity log |
 
 ## Processors
 
