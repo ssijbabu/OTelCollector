@@ -39,9 +39,8 @@ keeps working when Relay is down.
 
 ACNS is a **paid** add-on, charged per node.
 
-> The clusters in this repo's examples (`ocm-hub`, `ocm-spoke`) report
-> `networkDataplane: azure`, so stored flow logs aren't available there. Azure CNI clusters
-> can be moved to the Cilium data plane with
+> Clusters that report `networkDataplane: azure` (the Azure CNI default) can't use stored
+> flow logs. Azure CNI clusters can be moved to the Cilium data plane with
 > `az aks update -g <rg> -n <cluster> --network-dataplane cilium`. This is a **one-way**
 > change that reimages the nodes; plan it like an upgrade.
 
