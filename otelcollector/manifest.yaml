@@ -34,6 +34,10 @@ receivers:
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/kubeletstatsreceiver v0.164.1
   - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.164.0
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/receivercreator v0.164.1
+  # aks — custom receiver in this repo: AKS cluster and node pool state from Azure Resource Manager
+  - gomod: github.com/ssijbabu/OTelCollector/custom-components/receiver/aksclusterreceiver v0.0.0
+  # azure_activity_log — custom receiver in this repo: subscription activity log from Azure Resource Manager
+  - gomod: github.com/ssijbabu/OTelCollector/custom-components/receiver/azureactivitylogreceiver v0.0.0
 
 processors:
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/attributesprocessor v0.164.1
@@ -100,3 +104,6 @@ replaces:
   # Pin them to the release built for the same collector version as the other EDOT components.
   - github.com/elastic/opentelemetry-collector-components/internal/elasticattr => github.com/elastic/opentelemetry-collector-components/internal/elasticattr v0.78.0
   - github.com/elastic/opentelemetry-collector-components/processor/lsmintervalprocessor => github.com/elastic/opentelemetry-collector-components/processor/lsmintervalprocessor v0.80.0
+  # Custom components built from this repo (custom-components/ at the repo root)
+  - github.com/ssijbabu/OTelCollector/custom-components/receiver/aksclusterreceiver => ../custom-components/receiver/aksclusterreceiver
+  - github.com/ssijbabu/OTelCollector/custom-components/receiver/azureactivitylogreceiver => ../custom-components/receiver/azureactivitylogreceiver

@@ -29,6 +29,12 @@ go install go.opentelemetry.io/collector/cmd/builder@v0.164.0
 ## Repository structure
 
 ```
+custom-components/           # Custom components, each its own Go module
+└── receiver/
+    ├── aksclusterreceiver/        # `aks` receiver: AKS cluster state from Azure Resource Manager
+    └── azureactivitylogreceiver/  # `azure_activity_log` receiver: subscription activity log from Azure Resource Manager
+falco.md                     # Falco alerts (JSON output) → file_log on the agent
+hubble.md                    # AKS ACNS / Hubble flow logs → file_log on the agent (incl. Bicep)
 otelcollector/
 ├── manifest.yaml            # OCB manifest used by make, Docker and the pipeline (Event Hubs/Kafka → Elasticsearch)
 ├── manifest-old.yaml        # Previous broad EDOT component set (reference only)
@@ -44,9 +50,11 @@ otelcollector/
 ├── components.go            # OCB-generated — registers all component factories
 ├── go.mod / go.sum          # OCB-generated module graph (with transitive pins applied)
 │
-├── doc/                     # One full example config per processor, connector, extension, provider
+├── doc/                     # One full example config per component, plus the custom aks receiver
 │                            # (see doc/README.md)
 └── examples/
+    ├── connection.md        # Event Hubs with Workload Identity; agent→gateway mTLS with SPIFFE/SPIRE
+    ├── bicep/aks-acns.bicep # AKS with Cilium data plane + ACNS (Bicep)
     ├── binary/
     │   └── config.yaml      # Local binary: OTLP → Elasticsearch + debug
     └── k8s/
@@ -297,7 +305,7 @@ Component type names as reported by `./otelcol components`. Contrib v0.164 moved
 | Kind | Count | Types |
 |---|---|---|
 | Extensions | 15 | `apikeyauth` (EDOT), `apmconfig` (EDOT), `azure_auth`, `azure_encoding`, `beats_encoding` (EDOT), `cgroup_runtime`, `file_storage`, `headers_setter`, `health_check`, `healthcheckv2`, `k8s_leader_elector`, `k8s_observer`, `memory_limiter`, `opamp`, `pprof` |
-| Receivers | 10 | `elasticapmintake` (EDOT), `file_log`, `k8s_cluster`, `k8s_events`, `k8s_objects`, `kafka`, `kafka_metrics`, `kubelet_stats`, `otlp`, `receiver_creator` |
+| Receivers | 12 | `aks` (custom, [this repo](custom-components/receiver/aksclusterreceiver/README.md)), `azure_activity_log` (custom, [this repo](custom-components/receiver/azureactivitylogreceiver/README.md)), `elasticapmintake` (EDOT), `file_log`, `k8s_cluster`, `k8s_events`, `k8s_objects`, `kafka`, `kafka_metrics`, `kubelet_stats`, `otlp`, `receiver_creator` |
 | Processors | 17 | `attributes`, `batch`, `cumulative_to_delta`, `elasticapm` (EDOT), `elasticinframetrics` (EDOT), `elasticmetadata` (EDOT), `elastictrace` (EDOT, deprecated), `filter`, `geoip`, `k8s_attributes`, `log_dedup`, `memory_limiter`, `ratelimit` (EDOT), `resource`, `resource_detection`, `tail_sampling`, `transform` |
 | Exporters | 6 | `debug`, `elasticsearch`, `kafka`, `opensearch`, `otlp_grpc`, `otlp_http` |
 | Connectors | 6 | `elasticapm` (EDOT), `forward`, `otlp_json`, `profilingmetrics` (EDOT), `routing`, `span_metrics` |

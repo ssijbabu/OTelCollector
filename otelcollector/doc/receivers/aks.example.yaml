@@ -1,0 +1,56 @@
+# aks receiver — custom receiver in this repo (custom-components/receiver/aksclusterreceiver). Polls Azure Resource
+# Manager for Microsoft.ContainerService/managedClusters and reports each cluster's state:
+# power state, Kubernetes version, SKU, network settings and node pools.
+#
+# Scenario: one gateway replica watches every AKS cluster in a subscription (hub and spokes)
+# and writes the state to Elasticsearch: metrics for dashboards and alerts ("cluster stopped",
+# "node pool not running", "version drift"), plus one log document per cluster per poll
+# holding the full ARM resource JSON.
+#
+# Kubernetes: gateway Deployment using Azure Workload Identity (service account annotated with
+#             azure.workload.identity/client-id, pod label azure.workload.identity/use: "true").
+#             The managed identity needs the "Reader" role on the subscription (or on the
+#             resource group / cluster when you narrow the scope).
+#
+# Run:  ./otelcol --config doc/receivers/aks.example.yaml
+# Env:  AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_FEDERATED_TOKEN_FILE (set by the webhook),
+#       AZURE_SUBSCRIPTION_ID, ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+
+extensions:
+  azure_auth:
+    workload_identity:
+      client_id: ${env:AZURE_CLIENT_ID}
+      tenant_id: ${env:AZURE_TENANT_ID}
+      federated_token_file: ${env:AZURE_FEDERATED_TOKEN_FILE}
+    # No scopes needed: the aks receiver asks for the Azure Resource Manager scope itself.
+
+receivers:
+  aks:
+    subscription_id: ${env:AZURE_SUBSCRIPTION_ID}
+    # resource_group: example-rg     # optional: only clusters in this resource group
+    # cluster_name: example-aks             # optional: only this cluster (needs resource_group)
+    auth: azure_auth                    # required: tokens come from the azure_auth extension
+    collection_interval: 5m             # ARM is rate limited; 1m is the minimum
+    # endpoint: https://management.usgovcloudapi.net   # sovereign clouds
+
+processors:
+  batch: {}
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  extensions: [azure_auth]
+  pipelines:
+    metrics:
+      receivers: [aks]
+      processors: [batch]
+      exporters: [elasticsearch]
+    logs:
+      receivers: [aks]
+      processors: [batch]
+      exporters: [elasticsearch]

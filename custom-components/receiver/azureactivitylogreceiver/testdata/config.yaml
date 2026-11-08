@@ -1,0 +1,7 @@
+azure_activity_log:
+  subscription_id: 00000000-0000-0000-0000-000000000000
+  auth: azure_auth
+  resource_group: example-rg
+  collection_interval: 2m
+  max_ingestion_delay: 20m
+  initial_lookback: 24h

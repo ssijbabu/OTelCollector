@@ -1,0 +1,61 @@
+# azure_activity_log receiver — custom receiver in this repo
+# (custom-components/receiver/azureactivitylogreceiver). Polls the Azure Resource Manager
+# API for the subscription's activity log: who created, changed, deleted, started or
+# stopped which resource, failed operations, policy and health events.
+#
+# Scenario: an audit trail of control-plane changes in Elasticsearch, next to the cluster
+# telemetry. Every write, delete and action in the subscription, plus failures, lands in
+# Elasticsearch within a couple of minutes; noisy read operations and policy audits are
+# dropped. Correlate with the aks receiver through cloud.resource_id.
+#
+# Kubernetes: a single-replica gateway Deployment using Azure Workload Identity (service
+#             account annotated with azure.workload.identity/client-id, pod label
+#             azure.workload.identity/use: "true"). The managed identity needs
+#             "Monitoring Reader" (or "Reader") on the subscription.
+#
+# Run:  ./otelcol --config doc/receivers/azure_activity_log.example.yaml
+# Env:  AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_FEDERATED_TOKEN_FILE (set by the webhook),
+#       AZURE_SUBSCRIPTION_ID, ELASTICSEARCH_ENDPOINT, ELASTICSEARCH_API_KEY
+
+extensions:
+  azure_auth:
+    workload_identity:
+      client_id: ${env:AZURE_CLIENT_ID}
+      tenant_id: ${env:AZURE_TENANT_ID}
+      federated_token_file: ${env:AZURE_FEDERATED_TOKEN_FILE}
+    # No scopes needed: the receiver asks for the Azure Resource Manager scope itself.
+
+receivers:
+  azure_activity_log:
+    subscription_id: ${env:AZURE_SUBSCRIPTION_ID}
+    auth: azure_auth                 # required
+    collection_interval: 1m
+    max_ingestion_delay: 15m         # re-read window for late events (de-duplicated)
+    initial_lookback: 1h             # covers restarts up to an hour
+    # resource_group: example-rg  # optional, at most one of resource_group /
+    # resource_provider: Microsoft.ContainerService   # resource_id / resource_provider
+
+processors:
+  filter/noise:
+    error_mode: ignore
+    log_conditions:
+      # Drop successful reads and informational policy evaluations. Failures and policy
+      # warnings (non-compliant resources) are kept.
+      - log.attributes["azure.activity_log.status"] != "Failed" and IsMatch(log.attributes["azure.activity_log.operation.name"], "/read$")
+      - log.attributes["azure.activity_log.category"] == "Policy" and log.severity_number < SEVERITY_NUMBER_WARN
+  batch: {}
+
+exporters:
+  elasticsearch:
+    endpoint: ${env:ELASTICSEARCH_ENDPOINT}
+    api_key: ${env:ELASTICSEARCH_API_KEY}
+    mapping:
+      mode: otel
+
+service:
+  extensions: [azure_auth]
+  pipelines:
+    logs:
+      receivers: [azure_activity_log]
+      processors: [filter/noise, batch]
+      exporters: [elasticsearch]
