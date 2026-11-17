@@ -1,4 +1,4 @@
-module github.com/ssijbabu/OTelCollector/custom-components/receiver/aksclusterreceiver
+module custom-components/receiver/aksclusterreceiver
 
 go 1.26.0
 

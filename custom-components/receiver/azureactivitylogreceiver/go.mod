@@ -1,4 +1,4 @@
-module github.com/ssijbabu/OTelCollector/custom-components/receiver/azureactivitylogreceiver
+module custom-components/receiver/azureactivitylogreceiver
 
 go 1.26.0
 
