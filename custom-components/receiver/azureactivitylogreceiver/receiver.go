@@ -19,7 +19,7 @@ import (
 	"go.uber.org/zap"
 )
 
-const scopeName = "github.com/ssijbabu/OTelCollector/custom-components/receiver/azureactivitylogreceiver"
+const scopeName = "custom-components/receiver/azureactivitylogreceiver"
 
 type activityLogReceiver struct {
 	cfg    *Config

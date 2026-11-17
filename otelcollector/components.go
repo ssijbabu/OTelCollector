@@ -65,8 +65,8 @@ import (
 	kubeletstatsreceiver "github.com/open-telemetry/opentelemetry-collector-contrib/receiver/kubeletstatsreceiver"
 	otlpreceiver "go.opentelemetry.io/collector/receiver/otlpreceiver"
 	receivercreator "github.com/open-telemetry/opentelemetry-collector-contrib/receiver/receivercreator"
-	aksclusterreceiver "github.com/ssijbabu/OTelCollector/custom-components/receiver/aksclusterreceiver"
-	azureactivitylogreceiver "github.com/ssijbabu/OTelCollector/custom-components/receiver/azureactivitylogreceiver"
+	aksclusterreceiver "custom-components/receiver/aksclusterreceiver"
+	azureactivitylogreceiver "custom-components/receiver/azureactivitylogreceiver"
 )
 
 type aliasProvider interface{ DeprecatedAlias() component.Type }
@@ -155,8 +155,8 @@ func components() (otelcol.Factories, error) {
 		kubeletstatsreceiver.NewFactory().Type(): "github.com/open-telemetry/opentelemetry-collector-contrib/receiver/kubeletstatsreceiver v0.164.1",
 		otlpreceiver.NewFactory().Type(): "go.opentelemetry.io/collector/receiver/otlpreceiver v0.164.0",
 		receivercreator.NewFactory().Type(): "github.com/open-telemetry/opentelemetry-collector-contrib/receiver/receivercreator v0.164.1",
-		aksclusterreceiver.NewFactory().Type(): "github.com/ssijbabu/OTelCollector/custom-components/receiver/aksclusterreceiver v0.0.0",
-		azureactivitylogreceiver.NewFactory().Type(): "github.com/ssijbabu/OTelCollector/custom-components/receiver/azureactivitylogreceiver v0.0.0",
+		aksclusterreceiver.NewFactory().Type(): "custom-components/receiver/aksclusterreceiver v0.0.0",
+		azureactivitylogreceiver.NewFactory().Type(): "custom-components/receiver/azureactivitylogreceiver v0.0.0",
 	})
 
 	factories.Exporters, err = otelcol.MakeFactoryMap[exporter.Factory](

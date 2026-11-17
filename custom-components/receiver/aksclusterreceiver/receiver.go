@@ -19,7 +19,7 @@ import (
 	"go.uber.org/zap"
 )
 
-const scopeName = "github.com/ssijbabu/OTelCollector/custom-components/receiver/aksclusterreceiver"
+const scopeName = "custom-components/receiver/aksclusterreceiver"
 
 type aksReceiver struct {
 	cfg     *Config

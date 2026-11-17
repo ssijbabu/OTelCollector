@@ -5,6 +5,8 @@ module go.opentelemetry.io/collector/cmd/builder
 go 1.26.0
 
 require (
+	custom-components/receiver/aksclusterreceiver v0.0.0
+	custom-components/receiver/azureactivitylogreceiver v0.0.0
 	github.com/elastic/opentelemetry-collector-components/connector/elasticapmconnector v0.79.0
 	github.com/elastic/opentelemetry-collector-components/connector/profilingmetricsconnector v0.78.0
 	github.com/elastic/opentelemetry-collector-components/extension/apikeyauthextension v0.79.0
@@ -51,8 +53,6 @@ require (
 	github.com/open-telemetry/opentelemetry-collector-contrib/receiver/kafkareceiver v0.164.1
 	github.com/open-telemetry/opentelemetry-collector-contrib/receiver/kubeletstatsreceiver v0.164.1
 	github.com/open-telemetry/opentelemetry-collector-contrib/receiver/receivercreator v0.164.1
-	github.com/ssijbabu/OTelCollector/custom-components/receiver/aksclusterreceiver v0.0.0
-	github.com/ssijbabu/OTelCollector/custom-components/receiver/azureactivitylogreceiver v0.0.0
 	go.opentelemetry.io/collector/component v1.70.0
 	go.opentelemetry.io/collector/confmap v1.70.0
 	go.opentelemetry.io/collector/confmap/provider/envprovider v1.70.0
@@ -460,10 +460,10 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
+replace custom-components/receiver/aksclusterreceiver v0.0.0 => ../custom-components/receiver/aksclusterreceiver
+
+replace custom-components/receiver/azureactivitylogreceiver v0.0.0 => ../custom-components/receiver/azureactivitylogreceiver
+
 replace github.com/elastic/opentelemetry-collector-components/internal/elasticattr => github.com/elastic/opentelemetry-collector-components/internal/elasticattr v0.78.0
 
 replace github.com/elastic/opentelemetry-collector-components/processor/lsmintervalprocessor => github.com/elastic/opentelemetry-collector-components/processor/lsmintervalprocessor v0.80.0
-
-replace github.com/ssijbabu/OTelCollector/custom-components/receiver/aksclusterreceiver => ../custom-components/receiver/aksclusterreceiver
-
-replace github.com/ssijbabu/OTelCollector/custom-components/receiver/azureactivitylogreceiver => ../custom-components/receiver/azureactivitylogreceiver

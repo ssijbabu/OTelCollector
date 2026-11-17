@@ -29,7 +29,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 # Copy the manifest — OCB generates main.go / components.go / go.mod from it
 COPY otelcollector/manifest.yaml .
-# Custom components (custom-components/ at the repo root), referenced from manifest.yaml `replaces`
+# Custom components (custom-components/ at the repo root), referenced from manifest.yaml via `path:`
 COPY custom-components /build/custom-components
 
 # Generate sources, then tidy and compile separately for a static binary.
