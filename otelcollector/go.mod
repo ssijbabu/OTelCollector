@@ -5,8 +5,8 @@ module go.opentelemetry.io/collector/cmd/builder
 go 1.26.0
 
 require (
-	custom-components/receiver/aksclusterreceiver v0.0.0
-	custom-components/receiver/azureactivitylogreceiver v0.0.0
+	custom-components/receiver/aksclusterreceiver v0.1.0
+	custom-components/receiver/azureactivitylogreceiver v0.1.0
 	github.com/elastic/opentelemetry-collector-components/connector/elasticapmconnector v0.79.0
 	github.com/elastic/opentelemetry-collector-components/connector/profilingmetricsconnector v0.78.0
 	github.com/elastic/opentelemetry-collector-components/extension/apikeyauthextension v0.79.0
@@ -460,9 +460,9 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-replace custom-components/receiver/aksclusterreceiver v0.0.0 => ../custom-components/receiver/aksclusterreceiver
+replace custom-components/receiver/aksclusterreceiver v0.1.0 => ../custom-components/receiver/aksclusterreceiver
 
-replace custom-components/receiver/azureactivitylogreceiver v0.0.0 => ../custom-components/receiver/azureactivitylogreceiver
+replace custom-components/receiver/azureactivitylogreceiver v0.1.0 => ../custom-components/receiver/azureactivitylogreceiver
 
 replace github.com/elastic/opentelemetry-collector-components/internal/elasticattr => github.com/elastic/opentelemetry-collector-components/internal/elasticattr v0.78.0
 
