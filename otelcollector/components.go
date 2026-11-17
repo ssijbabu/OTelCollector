@@ -155,8 +155,8 @@ func components() (otelcol.Factories, error) {
 		kubeletstatsreceiver.NewFactory().Type(): "github.com/open-telemetry/opentelemetry-collector-contrib/receiver/kubeletstatsreceiver v0.164.1",
 		otlpreceiver.NewFactory().Type(): "go.opentelemetry.io/collector/receiver/otlpreceiver v0.164.0",
 		receivercreator.NewFactory().Type(): "github.com/open-telemetry/opentelemetry-collector-contrib/receiver/receivercreator v0.164.1",
-		aksclusterreceiver.NewFactory().Type(): "custom-components/receiver/aksclusterreceiver v0.0.0",
-		azureactivitylogreceiver.NewFactory().Type(): "custom-components/receiver/azureactivitylogreceiver v0.0.0",
+		aksclusterreceiver.NewFactory().Type(): "custom-components/receiver/aksclusterreceiver v0.1.0",
+		azureactivitylogreceiver.NewFactory().Type(): "custom-components/receiver/azureactivitylogreceiver v0.1.0",
 	})
 
 	factories.Exporters, err = otelcol.MakeFactoryMap[exporter.Factory](

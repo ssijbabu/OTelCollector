@@ -35,10 +35,10 @@ receivers:
   - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.164.0
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/receivercreator v0.164.1
   # aks — custom receiver in this repo: AKS cluster and node pool state from Azure Resource Manager
-  - gomod: custom-components/receiver/aksclusterreceiver v0.0.0
+  - gomod: custom-components/receiver/aksclusterreceiver v0.1.0
     path: ../custom-components/receiver/aksclusterreceiver
   # azure_activity_log — custom receiver in this repo: subscription activity log from Azure Resource Manager
-  - gomod: custom-components/receiver/azureactivitylogreceiver v0.0.0
+  - gomod: custom-components/receiver/azureactivitylogreceiver v0.1.0
     path: ../custom-components/receiver/azureactivitylogreceiver
 
 processors:
