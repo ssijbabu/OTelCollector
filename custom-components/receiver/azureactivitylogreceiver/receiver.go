@@ -29,13 +29,22 @@ type activityLogReceiver struct {
 	httpDo *http.Client
 	now    func() time.Time
 
-	// Polling state. Only the polling goroutine touches it after Start.
+	// Polling state. Only the polling goroutine touches it while polling runs;
+	// startPolling resets it before starting that goroutine.
 	cursor time.Time            // end of the last fully read window
 	first  bool                 // the first window starts exactly at cursor
 	seen   map[string]time.Time // emitted event IDs -> event time, for de-duplication
 
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	mu       sync.Mutex // guards cancel and shutdown, and serializes start/stop
+	cancel   context.CancelFunc
+	shutdown bool
+	wg       sync.WaitGroup
+}
+
+// leaderElector matches the k8s_leader_elector extension's LeaderElection interface.
+// It is declared locally so this module does not depend on client-go.
+type leaderElector interface {
+	SetCallBackFuncs(onStartLeading func(context.Context), onStopLeading func())
 }
 
 func newReceiver(set receiver.Settings, cfg *Config, next consumer.Logs) *activityLogReceiver {
@@ -55,6 +64,48 @@ func (r *activityLogReceiver) Start(_ context.Context, host component.Host) erro
 		return err
 	}
 	r.client = &armClient{http: r.httpDo, cred: cred, cfg: r.cfg}
+
+	if r.cfg.K8sLeaderElector == nil {
+		r.startPolling()
+		return nil
+	}
+	elector, err := r.leaderElector(host)
+	if err != nil {
+		return err
+	}
+	// The extension calls these when this replica gains or loses the Lease. If it already
+	// holds the Lease, onStartLeading runs immediately, so it must not block.
+	elector.SetCallBackFuncs(
+		func(context.Context) {
+			r.set.Logger.Info("Acquired leadership; starting activity log polling",
+				zap.Duration("initial_lookback", r.cfg.InitialLookback))
+			r.startPolling()
+		},
+		func() {
+			r.set.Logger.Info("Lost leadership; stopping activity log polling")
+			r.stopPolling()
+		},
+	)
+	return nil
+}
+
+func (r *activityLogReceiver) Shutdown(context.Context) error {
+	r.mu.Lock()
+	r.shutdown = true
+	r.mu.Unlock()
+	r.stopPolling()
+	return nil
+}
+
+// startPolling starts the polling loop unless it is already running or the receiver has
+// been shut down. Like a restart, the first poll reads back InitialLookback: a replica that
+// just became leader has no record of what the previous leader read.
+func (r *activityLogReceiver) startPolling() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.shutdown || r.cancel != nil {
+		return
+	}
 	r.cursor = r.now().Add(-r.cfg.InitialLookback)
 	r.first = true
 
@@ -62,15 +113,31 @@ func (r *activityLogReceiver) Start(_ context.Context, host component.Host) erro
 	r.cancel = cancel
 	r.wg.Add(1)
 	go r.run(ctx)
-	return nil
 }
 
-func (r *activityLogReceiver) Shutdown(context.Context) error {
+// stopPolling stops the polling loop and waits for an in-flight poll to finish. It holds
+// mu while waiting so that startPolling cannot reset the state of a running poll.
+func (r *activityLogReceiver) stopPolling() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.cancel != nil {
 		r.cancel()
+		r.cancel = nil
 	}
 	r.wg.Wait()
-	return nil
+}
+
+// leaderElector returns the configured k8s_leader_elector extension.
+func (r *activityLogReceiver) leaderElector(host component.Host) (leaderElector, error) {
+	ext, ok := host.GetExtensions()[*r.cfg.K8sLeaderElector]
+	if !ok {
+		return nil, fmt.Errorf("k8s_leader_elector extension %q not found; add it to service.extensions", r.cfg.K8sLeaderElector)
+	}
+	elector, ok := ext.(leaderElector)
+	if !ok {
+		return nil, fmt.Errorf("extension %q is not a k8s_leader_elector extension", r.cfg.K8sLeaderElector)
+	}
+	return elector, nil
 }
 
 // credential returns the token source provided by the configured azure_auth extension.
