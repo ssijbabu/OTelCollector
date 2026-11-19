@@ -28,8 +28,17 @@ type aksReceiver struct {
 	logs    consumer.Logs
 	client  *armClient
 	httpDo  *http.Client
-	cancel  context.CancelFunc
-	wg      sync.WaitGroup
+
+	mu       sync.Mutex
+	cancel   context.CancelFunc
+	shutdown bool
+	wg       sync.WaitGroup
+}
+
+// leaderElector matches the k8s_leader_elector extension's LeaderElection interface.
+// It is declared locally so this module does not depend on client-go.
+type leaderElector interface {
+	SetCallBackFuncs(onStartLeading func(context.Context), onStopLeading func())
 }
 
 func newReceiver(set receiver.Settings, cfg *Config) *aksReceiver {
@@ -47,19 +56,74 @@ func (r *aksReceiver) Start(_ context.Context, host component.Host) error {
 	}
 	r.client = &armClient{http: r.httpDo, cred: cred, cfg: r.cfg}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	r.cancel = cancel
-	r.wg.Add(1)
-	go r.run(ctx)
+	if r.cfg.K8sLeaderElector == nil {
+		r.startPolling()
+		return nil
+	}
+	elector, err := r.leaderElector(host)
+	if err != nil {
+		return err
+	}
+	// The extension calls these when this replica gains or loses the Lease. If it already
+	// holds the Lease, onStartLeading runs immediately, so it must not block.
+	elector.SetCallBackFuncs(
+		func(context.Context) {
+			r.set.Logger.Info("Acquired leadership; starting AKS polling")
+			r.startPolling()
+		},
+		func() {
+			r.set.Logger.Info("Lost leadership; stopping AKS polling")
+			r.stopPolling()
+		},
+	)
 	return nil
 }
 
 func (r *aksReceiver) Shutdown(context.Context) error {
-	if r.cancel != nil {
-		r.cancel()
+	r.mu.Lock()
+	r.shutdown = true
+	r.mu.Unlock()
+	r.stopPolling()
+	return nil
+}
+
+// startPolling starts the collection loop unless it is already running or the receiver
+// has been shut down.
+func (r *aksReceiver) startPolling() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.shutdown || r.cancel != nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	r.cancel = cancel
+	r.wg.Add(1)
+	go r.run(ctx)
+}
+
+// stopPolling stops the collection loop and waits for an in-flight poll to finish.
+func (r *aksReceiver) stopPolling() {
+	r.mu.Lock()
+	cancel := r.cancel
+	r.cancel = nil
+	r.mu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
 	r.wg.Wait()
-	return nil
+}
+
+// leaderElector returns the configured k8s_leader_elector extension.
+func (r *aksReceiver) leaderElector(host component.Host) (leaderElector, error) {
+	ext, ok := host.GetExtensions()[*r.cfg.K8sLeaderElector]
+	if !ok {
+		return nil, fmt.Errorf("k8s_leader_elector extension %q not found; add it to service.extensions", r.cfg.K8sLeaderElector)
+	}
+	elector, ok := ext.(leaderElector)
+	if !ok {
+		return nil, fmt.Errorf("extension %q is not a k8s_leader_elector extension", r.cfg.K8sLeaderElector)
+	}
+	return elector, nil
 }
 
 // credential returns the token source provided by the configured azure_auth extension.

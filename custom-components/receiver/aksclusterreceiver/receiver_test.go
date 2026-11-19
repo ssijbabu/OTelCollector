@@ -296,3 +296,74 @@ func TestShutdownWithoutStart(t *testing.T) {
 	r := newReceiver(receivertest.NewNopSettings(componentType), testConfig("https://x"))
 	require.NoError(t, r.Shutdown(context.Background()))
 }
+
+// fakeElector mimics the k8s_leader_elector extension's callback registration.
+type fakeElector struct {
+	component.StartFunc
+	component.ShutdownFunc
+	onStart func(context.Context)
+	onStop  func()
+}
+
+func (e *fakeElector) SetCallBackFuncs(onStart func(context.Context), onStop func()) {
+	e.onStart, e.onStop = onStart, onStop
+}
+
+func TestLeaderElection(t *testing.T) {
+	srv, calls := armServer(t, loadCluster(t))
+	cfg := testConfig(srv.URL)
+	cfg.ResourceGroup = "example-rg"
+	cfg.ClusterName = "example-aks"
+	electorID := component.MustNewID("k8s_leader_elector")
+	cfg.K8sLeaderElector = &electorID
+
+	elector := &fakeElector{}
+	host := fakeHost{ext: map[component.ID]component.Component{
+		*cfg.Auth: &fakeExt{},
+		electorID: elector,
+	}}
+	sink := new(consumertest.MetricsSink)
+	r := newReceiver(receivertest.NewNopSettings(componentType), cfg)
+	r.metrics = sink
+	require.NoError(t, r.Start(context.Background(), host))
+	require.NotNil(t, elector.onStart)
+
+	// Not the leader: nothing is polled.
+	time.Sleep(100 * time.Millisecond)
+	require.Zero(t, calls.Load())
+
+	// Becomes leader: polls.
+	elector.onStart(context.Background())
+	require.Eventually(t, func() bool { return sink.DataPointCount() > 0 }, 5*time.Second, 20*time.Millisecond)
+	elector.onStart(context.Background()) // duplicate start is a no-op
+
+	// Loses leadership: polling stops.
+	elector.onStop()
+	n := calls.Load()
+	time.Sleep(100 * time.Millisecond)
+	require.Equal(t, n, calls.Load())
+
+	// Regains leadership: polls again.
+	elector.onStart(context.Background())
+	require.Eventually(t, func() bool { return calls.Load() > n }, 5*time.Second, 20*time.Millisecond)
+
+	require.NoError(t, r.Shutdown(context.Background()))
+	// A leadership callback after shutdown must not restart polling.
+	elector.onStart(context.Background())
+	n = calls.Load()
+	time.Sleep(100 * time.Millisecond)
+	require.Equal(t, n, calls.Load())
+}
+
+func TestLeaderElectorErrors(t *testing.T) {
+	cfg := testConfig("https://management.azure.com")
+	electorID := component.MustNewID("k8s_leader_elector")
+	cfg.K8sLeaderElector = &electorID
+	r := newReceiver(receivertest.NewNopSettings(componentType), cfg)
+
+	host := fakeHost{ext: map[component.ID]component.Component{*cfg.Auth: &fakeExt{}}}
+	require.ErrorContains(t, r.Start(context.Background(), host), "not found")
+
+	host.ext[electorID] = &fakeExt{}
+	require.ErrorContains(t, r.Start(context.Background(), host), "is not a k8s_leader_elector extension")
+}
