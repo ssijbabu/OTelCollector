@@ -23,6 +23,7 @@ Full example: [`azure_activity_log.example.yaml`](../../../otelcollector/doc/rec
 |---|---|---|
 | `subscription_id` | — (required) | Subscription whose activity log is read. |
 | `auth` | — (required) | ID of the [`azure_auth`](../../../otelcollector/doc/extensions/azure_auth.md) extension that provides the Azure tokens. |
+| `k8s_leader_elector` | — | ID of a [`k8s_leader_elector`](../../../otelcollector/doc/extensions/k8s_leader_elector.example.yaml) extension. When set, only the replica holding the Kubernetes Lease polls. See [Running several replicas](#running-several-replicas). |
 | `resource_group` | — | Only events for this resource group. |
 | `resource_id` | — | Only events for this resource (full resource ID). |
 | `resource_provider` | — | Only events for this provider, e.g. `Microsoft.ContainerService`. |
@@ -88,6 +89,8 @@ it overlaps what was already sent, those events are sent twice; anything older t
 `initial_lookback` that happened while the collector was down is missed. To avoid both,
 set `initial_lookback` to cover your longest expected downtime and de-duplicate in the
 backend. In Elasticsearch, `azure.activity_log.event_data_id` is unique per event.
+The same applies when leadership moves to another replica (see below): the new leader
+starts like a restarted collector and reads `initial_lookback` again.
 
 ## Log records
 
@@ -134,14 +137,65 @@ the core of an audit trail. Drop them with a `transform` processor if you don't 
 
 ## Notes
 
-- **Run one replica.** Every replica polls and de-duplicates independently, so running
-  several duplicates the events. On a scaled-out gateway, use a separate single-replica
-  Deployment.
+- **Several replicas:** without `k8s_leader_elector`, every replica polls and
+  de-duplicates independently, so the events are duplicated. See below.
 - **One subscription per receiver.** For several subscriptions, add one instance each
   (`azure_activity_log/prod`, `azure_activity_log/dev`).
 - **Event volume:** a busy subscription can produce thousands of events per hour, many of
   them `Policy` audits or `read` operations. Filter them out with a `filter` processor if
   you don't need them.
+
+## Running several replicas
+
+Set `k8s_leader_elector` to use the collector's built-in `k8s_leader_elector` extension.
+The replicas compete for one Kubernetes Lease and only the holder polls the activity log.
+
+```yaml
+extensions:
+  azure_auth:
+    workload_identity: { ... }
+  k8s_leader_elector:
+    auth_type: serviceAccount
+    lease_name: otel-azure-activity-log
+    lease_namespace: otel-gateway   # the gateway's namespace
+
+receivers:
+  azure_activity_log:
+    subscription_id: ${env:AZURE_SUBSCRIPTION_ID}
+    auth: azure_auth
+    k8s_leader_elector: k8s_leader_elector
+
+service:
+  extensions: [azure_auth, k8s_leader_elector]   # both must be listed here
+```
+
+**Failover:** the read position and de-duplication state are in memory, so they aren't
+handed over. A replica that becomes leader reads back `initial_lookback`, just like a
+restart. With the default `15m`, events the previous leader sent in its last 15 minutes are
+sent again; de-duplicate on `azure.activity_log.event_data_id` in the backend. A takeover
+normally happens within the extension's `lease_duration` (15s by default), so the default
+`initial_lookback` easily covers the gap. Raise it only if a takeover can take longer.
+
+The collector's service account needs permission to manage the Lease:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: otel-azure-activity-log-lease
+  namespace: otel-gateway
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+```
+
+Bind it to the gateway's service account with a RoleBinding. Without this role the extension
+cannot take the Lease, and no replica polls.
+
+The receiver fails to start if `k8s_leader_elector` points to a missing extension, or to one
+that isn't a `k8s_leader_elector`. The `aks` receiver can share the same extension and Lease,
+so one replica runs both.
 
 ## Development
 

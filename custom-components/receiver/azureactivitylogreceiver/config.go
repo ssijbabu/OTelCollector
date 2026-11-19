@@ -23,6 +23,9 @@ type Config struct {
 	SubscriptionID string `mapstructure:"subscription_id"`
 	// Auth is the ID of the azure_auth extension that provides Azure tokens. Required.
 	Auth *component.ID `mapstructure:"auth"`
+	// K8sLeaderElector is the ID of a k8s_leader_elector extension. When set, only the
+	// replica holding the Kubernetes Lease polls the activity log. Optional.
+	K8sLeaderElector *component.ID `mapstructure:"k8s_leader_elector"`
 
 	// At most one of the following narrows the events (an Azure API restriction).
 	ResourceGroup    string `mapstructure:"resource_group"`

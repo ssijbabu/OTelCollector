@@ -361,3 +361,87 @@ func TestAuthExtensionErrors(t *testing.T) {
 	require.ErrorContains(t, r.Start(context.Background(), host), "does not provide Azure tokens")
 	require.NoError(t, r.Shutdown(context.Background()))
 }
+
+// fakeElector mimics the k8s_leader_elector extension's callback registration.
+type fakeElector struct {
+	component.StartFunc
+	component.ShutdownFunc
+	onStart func(context.Context)
+	onStop  func()
+}
+
+func (e *fakeElector) SetCallBackFuncs(onStart func(context.Context), onStop func()) {
+	e.onStart, e.onStop = onStart, onStop
+}
+
+func eventAt(id string, ts time.Time) json.RawMessage {
+	return json.RawMessage(`{"eventDataId":"` + id + `","eventTimestamp":"` + ts.Format(time.RFC3339Nano) +
+		`","level":"Informational","resourceId":"/subscriptions/s/resourceGroups/rg/providers/p/t/n"}`)
+}
+
+func TestLeaderElection(t *testing.T) {
+	f := newFakeARM(t, nil)
+	var clock atomic.Int64
+	start := time.Date(2026, 11, 7, 10, 0, 0, 0, time.UTC)
+	clock.Store(start.UnixNano())
+
+	cfg := testConfig(f.srv.URL)
+	electorID := component.MustNewID("k8s_leader_elector")
+	cfg.K8sLeaderElector = &electorID
+	elector := &fakeElector{}
+	host := fakeHost{ext: map[component.ID]component.Component{*cfg.Auth: &fakeExt{}, electorID: elector}}
+
+	sink := new(consumertest.LogsSink)
+	r := newReceiver(receivertest.NewNopSettings(componentType), cfg, sink)
+	r.now = func() time.Time { return time.Unix(0, clock.Load()).UTC() }
+	require.NoError(t, r.Start(context.Background(), host))
+	require.NotNil(t, elector.onStart)
+
+	// Not the leader: nothing is polled.
+	time.Sleep(100 * time.Millisecond)
+	require.Zero(t, f.calls.Load())
+
+	// Becomes leader: reads back initial_lookback.
+	f.add(eventAt("first-term", start.Add(-5*time.Minute)))
+	elector.onStart(context.Background())
+	require.Eventually(t, func() bool { return sink.LogRecordCount() == 1 }, 5*time.Second, 20*time.Millisecond)
+	elector.onStart(context.Background()) // duplicate start is a no-op
+
+	// Loses leadership: polling stops.
+	elector.onStop()
+	n := f.calls.Load()
+	time.Sleep(100 * time.Millisecond)
+	require.Equal(t, n, f.calls.Load())
+
+	// Regains leadership two hours later. The window restarts at now - initial_lookback
+	// rather than at the stale cursor, so an event from an hour ago (when another
+	// replica was leader) is not re-read.
+	later := start.Add(2 * time.Hour)
+	clock.Store(later.UnixNano())
+	f.add(eventAt("other-leaders-term", start.Add(time.Hour)))
+	f.add(eventAt("second-term", later.Add(-5*time.Minute)))
+	elector.onStart(context.Background())
+	require.Eventually(t, func() bool { return sink.LogRecordCount() == 2 }, 5*time.Second, 20*time.Millisecond)
+
+	require.NoError(t, r.Shutdown(context.Background()))
+	assert.Equal(t, []string{"first-term", "second-term"}, recordIDs(sink))
+
+	// A leadership callback after shutdown must not restart polling.
+	elector.onStart(context.Background())
+	n = f.calls.Load()
+	time.Sleep(100 * time.Millisecond)
+	require.Equal(t, n, f.calls.Load())
+}
+
+func TestLeaderElectorErrors(t *testing.T) {
+	cfg := testConfig("https://management.azure.com")
+	electorID := component.MustNewID("k8s_leader_elector")
+	cfg.K8sLeaderElector = &electorID
+	r := newReceiver(receivertest.NewNopSettings(componentType), cfg, consumertest.NewNop())
+
+	host := fakeHost{ext: map[component.ID]component.Component{*cfg.Auth: &fakeExt{}}}
+	require.ErrorContains(t, r.Start(context.Background(), host), "not found")
+
+	host.ext[electorID] = &fakeExt{}
+	require.ErrorContains(t, r.Start(context.Background(), host), "is not a k8s_leader_elector extension")
+}
