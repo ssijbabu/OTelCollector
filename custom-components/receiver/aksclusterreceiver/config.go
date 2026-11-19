@@ -27,6 +27,10 @@ type Config struct {
 	// Auth is the ID of the azure_auth extension that provides Azure tokens. Required.
 	Auth *component.ID `mapstructure:"auth"`
 
+	// K8sLeaderElector is the ID of a k8s_leader_elector extension. When set, only the
+	// replica holding the Kubernetes Lease polls Azure Resource Manager. Optional.
+	K8sLeaderElector *component.ID `mapstructure:"k8s_leader_elector"`
+
 	// CollectionInterval is how often the Azure Resource Manager API is polled.
 	CollectionInterval time.Duration `mapstructure:"collection_interval"`
 	// InitialDelay is the delay before the first collection.

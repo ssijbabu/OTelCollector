@@ -28,6 +28,7 @@ Full example: [`doc/receivers/aks.example.yaml`](../../../otelcollector/doc/rece
 | `resource_group` | — | Only clusters in this resource group. |
 | `cluster_name` | — | Only this cluster. Requires `resource_group`. |
 | `auth` | — (required) | ID of the [`azure_auth`](../../../otelcollector/doc/extensions/azure_auth.md) extension that provides the Azure tokens. The extension must be listed in `service.extensions`. |
+| `k8s_leader_elector` | — | ID of a [`k8s_leader_elector`](../../../otelcollector/doc/extensions/k8s_leader_elector.example.yaml) extension. When set, only the replica holding the Kubernetes Lease polls. See [Running several replicas](#running-several-replicas). |
 | `collection_interval` | `5m` | How often to poll. Minimum `1m`. |
 | `initial_delay` | `1s` | Delay before the first poll. |
 | `timeout` | `30s` | Time limit for one poll, including paging. |
@@ -138,14 +139,60 @@ don't want those stored either, drop them with a `transform` processor.
 
 ## Notes
 
-- **Run one replica.** Every replica polls independently, which duplicates data and uses the
-  subscription's ARM read quota. The receiver has no leader election, so on a scaled-out
-  gateway, run it in a separate single-replica Deployment.
+- **Several replicas:** without `k8s_leader_elector`, every replica polls independently,
+  which duplicates data and uses the subscription's ARM read quota. See below.
 - **Metrics and logs pipelines poll separately.** Using the receiver in both doubles the
   API calls. At the default 5m interval that's negligible.
 - **Failed polls:** errors are logged with the ARM error code (for example
   `403 AuthorizationFailed`) and nothing is emitted for that poll. If a later page of a
   subscription-wide listing fails, the clusters already read are still emitted.
+
+## Running several replicas
+
+Set `k8s_leader_elector` to use the collector's built-in `k8s_leader_elector` extension.
+The replicas compete for one Kubernetes Lease and only the holder polls ARM. When the leader
+stops or loses the Lease, another replica takes over within about `lease_duration`. A replica
+that becomes leader polls after `initial_delay`, not after a full `collection_interval`.
+
+```yaml
+extensions:
+  azure_auth:
+    workload_identity: { ... }
+  k8s_leader_elector:
+    auth_type: serviceAccount
+    lease_name: otel-aks-receiver
+    lease_namespace: otel-gateway   # the gateway's namespace
+
+receivers:
+  aks:
+    subscription_id: ${env:AZURE_SUBSCRIPTION_ID}
+    auth: azure_auth
+    k8s_leader_elector: k8s_leader_elector
+
+service:
+  extensions: [azure_auth, k8s_leader_elector]   # both must be listed here
+```
+
+The collector's service account needs permission to manage the Lease:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: otel-aks-receiver-lease
+  namespace: otel-gateway
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+```
+
+Bind it to the gateway's service account with a RoleBinding. Without this role the extension
+cannot take the Lease, and no replica polls.
+
+The receiver fails to start if `k8s_leader_elector` points to a missing extension, or to one
+that isn't a `k8s_leader_elector`. Each `aks` receiver registers with the extension
+separately, so metrics and logs pipelines both follow the same Lease.
 
 ## Development
 
